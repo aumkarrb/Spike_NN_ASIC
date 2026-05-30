@@ -145,5 +145,5 @@ AER is the standard spike communication protocol for neuromorphic chips. When a 
 
 ---
 
-## Topics
+
 - Done as part of Digital Systems Design Elective Mini-Project Assignment
