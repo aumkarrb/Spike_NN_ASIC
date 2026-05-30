@@ -1,5 +1,3 @@
-# Spike_NN_ASIC
-
 # Spike NN ASIC — Digital Spiking Neural Network for ASIC Implementation
 
 > RTL Design and Verification of a Pipelined Leaky Integrate-and-Fire Spiking Neural Network in Verilog, targeting ASIC implementation
