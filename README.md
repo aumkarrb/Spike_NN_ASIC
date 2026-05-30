@@ -2,7 +2,7 @@
 
 # Spike NN ASIC — Digital Spiking Neural Network for ASIC Implementation
 
-> **DSD Elective Mini-Project Assignment** · RTL Design and Verification of a Pipelined Leaky Integrate-and-Fire Spiking Neural Network in Verilog, targeting ASIC implementation
+> RTL Design and Verification of a Pipelined Leaky Integrate-and-Fire Spiking Neural Network in Verilog, targeting ASIC implementation
 
 ![Language](https://img.shields.io/badge/Language-Verilog%20%7C%20SystemVerilog-blue)
 ![Domain](https://img.shields.io/badge/Domain-Neuromorphic%20Computing-purple)
