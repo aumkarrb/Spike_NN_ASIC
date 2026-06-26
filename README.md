@@ -216,9 +216,4 @@ core:
 
 MIT License — see `LICENSE`.
 
-Done as part of a Digital Systems Design elective mini-project assignment.
-Benchmarked using hardcoded dummy stimulus values, not a real dataset.
----
-
-
 - Done as part of Digital Systems Design Elective Mini-Project Assignment
