@@ -20,10 +20,6 @@ each is exercised by its own dedicated test in the testbench, with no signal
 path wiring one module's output into another's input. This is a unit-level
 verification environment, not an integration test of an end-to-end datapath.
 
-The sections below describe what each module *actually does*, as implemented,
-with explicit notes where the behavior is partial, simplified, or diverges
-from what the module name or parameter list might suggest.
----
 
 ## Repository Structure
 
@@ -49,23 +45,9 @@ Spike_NN_ASIC/
 ├── LICENSE                            # License file
 └── README.md                          # This file
 ```
-
----
-
----
-
-
-
----
-
-
 ---
 
 ## Module Reference
-
-Each module is described against its actual RTL, not its filename or
-parameter list. Where a parameter exists but has no effect on behavior, that
-is called out explicitly.
 
 ### `pipelined_lif.v` — LIF neuron array
 
@@ -142,13 +124,6 @@ is called out explicitly.
 ---
 
 ## Datapath Diagram (Design Intent)
-
-The block diagram below reflects the *intended* signal flow these modules
-are designed to support. **No such wiring currently exists in the
-testbench** — see [Testbench](#testbench) below. Building this integration
-(connecting FIFO output → synapse pipeline → LIF input → logger input) is
-listed under [Known Gaps](#known-gaps--suggested-next-steps).
-
 ```
 External Spike Input
         │
