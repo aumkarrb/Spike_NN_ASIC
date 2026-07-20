@@ -1,0 +1,112 @@
+<svg viewBox="0 0 1620 1080" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+
+  <defs>
+    <marker id="mBlue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4472C4"/>
+    </marker>
+    <marker id="mRust" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#C16B4A"/>
+    </marker>
+    <marker id="mGreen" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1D9C77"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1620" height="1080" fill="#FFFFFF"/>
+
+  <!-- ===================== outer container ===================== -->
+  <rect x="40" y="40" width="1540" height="1000" rx="34" fill="#F1EDE3" stroke="#A79F87" stroke-width="1.8"/>
+  <text x="810" y="100" font-size="27" font-weight="700" fill="#4A4638" text-anchor="middle">Spike_NN_ASIC &#8212; Verified Datapath (Icarus Verilog)</text>
+
+  <!-- ===================== left panel: Testbench ===================== -->
+  <rect x="75" y="140" width="560" height="860" rx="26" fill="#DCF1E8" stroke="#3F9E7C" stroke-width="1.8"/>
+  <text x="355" y="185" font-size="22" font-weight="700" fill="#0E4A38" text-anchor="middle">Testbench</text>
+  <text x="355" y="210" font-size="15" fill="#1D7A5C" text-anchor="middle">spike_nn_tb_layered.sv</text>
+
+  <!-- sub-boxes, left panel -->
+  <rect x="105" y="240" width="500" height="115" rx="18" fill="#EFFAF5" stroke="#3F9E7C" stroke-width="1.5"/>
+  <text x="355" y="282" font-size="18.5" font-weight="700" fill="#0E4A38" text-anchor="middle">Clock &amp; reset generation</text>
+  <text x="355" y="308" font-size="14.5" fill="#1D7A5C" text-anchor="middle">clk &#183; dst_clk &#183; rd_clk &#8212; 3 independent domains</text>
+  <text x="355" y="330" font-size="14.5" fill="#1D7A5C" text-anchor="middle">(10ns / 14ns / 17ns periods)</text>
+
+  <rect x="105" y="375" width="500" height="115" rx="18" fill="#EFFAF5" stroke="#3F9E7C" stroke-width="1.5"/>
+  <text x="355" y="417" font-size="18.5" font-weight="700" fill="#0E4A38" text-anchor="middle">Stimulus tasks</text>
+  <text x="355" y="443" font-size="14.5" fill="#1D7A5C" text-anchor="middle">send_pulse &#183; write_fifo &#183; write_weight</text>
+  <text x="355" y="465" font-size="14.5" fill="#1D7A5C" text-anchor="middle">inject_lif_current &#183; send_synapse_event</text>
+
+  <rect x="105" y="510" width="500" height="115" rx="18" fill="#EFFAF5" stroke="#3F9E7C" stroke-width="1.5"/>
+  <text x="355" y="552" font-size="18.5" font-weight="700" fill="#0E4A38" text-anchor="middle">Datapath bridge (Test 8)</text>
+  <text x="355" y="578" font-size="14.5" fill="#1D7A5C" text-anchor="middle">fifo &#8594; synapse &#8594; lif &#8594; logger</text>
+  <text x="355" y="600" font-size="14.5" fill="#1D7A5C" text-anchor="middle">cycle-by-cycle signal glue</text>
+
+  <rect x="105" y="645" width="500" height="115" rx="18" fill="#EFFAF5" stroke="#3F9E7C" stroke-width="1.5"/>
+  <text x="355" y="687" font-size="18.5" font-weight="700" fill="#0E4A38" text-anchor="middle">Checkers</text>
+  <text x="355" y="713" font-size="14.5" fill="#1D7A5C" text-anchor="middle">per-test pass/fail assertions</text>
+  <text x="355" y="735" font-size="14.5" fill="#1D7A5C" text-anchor="middle">8 tests, cross-module regressions</text>
+
+  <rect x="105" y="780" width="500" height="115" rx="18" fill="#EFFAF5" stroke="#3F9E7C" stroke-width="1.5"/>
+  <text x="355" y="822" font-size="18.5" font-weight="700" fill="#0E4A38" text-anchor="middle">Waveform dump</text>
+  <text x="355" y="848" font-size="14.5" fill="#1D7A5C" text-anchor="middle">spike_nn_layered.vcd</text>
+  <text x="355" y="870" font-size="14.5" fill="#1D7A5C" text-anchor="middle">$dumpvars, full hierarchy</text>
+
+  <!-- ===================== right panel: Design (RTL) ===================== -->
+  <rect x="675" y="140" width="850" height="860" rx="26" fill="#E7E2F7" stroke="#7B6FC4" stroke-width="1.8"/>
+  <text x="1100" y="185" font-size="22" font-weight="700" fill="#3B2E7A" text-anchor="middle">Design/ &#8212; RTL modules</text>
+  <text x="1100" y="210" font-size="15" fill="#5B4EA0" text-anchor="middle">6 modules &#183; 2 CDC domains &#183; Verilog-2001 / SystemVerilog</text>
+
+  <!-- row 1: event_fifo + weight_ram_par -->
+  <rect x="705" y="240" width="390" height="130" rx="18" fill="#FBE3D8" stroke="#C97452" stroke-width="1.7"/>
+  <text x="900" y="285" font-size="19" font-weight="700" fill="#8A3D1F" text-anchor="middle">event_fifo.v</text>
+  <text x="900" y="312" font-size="14" fill="#B85A34" text-anchor="middle">async dual-clock FIFO</text>
+  <text x="900" y="333" font-size="14" fill="#B85A34" text-anchor="middle">Gray pointers, 2-flop sync</text>
+
+  <rect x="1115" y="240" width="390" height="130" rx="18" fill="#FBE3D8" stroke="#C97452" stroke-width="1.7"/>
+  <text x="1310" y="285" font-size="19" font-weight="700" fill="#8A3D1F" text-anchor="middle">weight_ram_par.v</text>
+  <text x="1310" y="312" font-size="14" fill="#B85A34" text-anchor="middle">RD_PORTS parallel reads</text>
+  <text x="1310" y="333" font-size="14" fill="#B85A34" text-anchor="middle">1 synchronous write port</text>
+
+  <path d="M900,370 L900,395 L1200,395 L1200,415" fill="none" stroke="#C16B4A" stroke-width="1.8" marker-end="url(#mRust)"/>
+  <path d="M1310,370 L1310,395 L1200,395" fill="none" stroke="#C16B4A" stroke-width="1.8"/>
+
+  <!-- row 2: synapse_pipeline -->
+  <rect x="705" y="420" width="800" height="115" rx="18" fill="#FBE3D8" stroke="#C97452" stroke-width="1.7"/>
+  <text x="1105" y="460" font-size="19" font-weight="700" fill="#8A3D1F" text-anchor="middle">synapse_pipeline.v</text>
+  <text x="1105" y="486" font-size="14.5" fill="#B85A34" text-anchor="middle">real MAC (event_data &#215; weight_in) &#183; DELAY-stage pipeline &#183; backpressured accumulate</text>
+  <text x="1105" y="508" font-size="14.5" fill="#B85A34" text-anchor="middle">WIDTH=32 &#183; DELAY=8</text>
+
+  <path d="M1105,535 L1105,560" stroke="#C16B4A" stroke-width="1.8" marker-end="url(#mRust)"/>
+
+  <!-- row 3: pipelined_lif -->
+  <rect x="705" y="565" width="800" height="115" rx="18" fill="#FBE3D8" stroke="#C97452" stroke-width="1.7"/>
+  <text x="1105" y="605" font-size="19" font-weight="700" fill="#8A3D1F" text-anchor="middle">pipelined_lif.v</text>
+  <text x="1105" y="631" font-size="14.5" fill="#B85A34" text-anchor="middle">round-robin, all 16 neurons live &#183; genuinely pipelined update</text>
+  <text x="1105" y="653" font-size="14.5" fill="#B85A34" text-anchor="middle">Neurons=16 &#183; Pipeline_Stages=4</text>
+
+  <path d="M1105,680 L1105,705" stroke="#C16B4A" stroke-width="1.8" marker-end="url(#mRust)"/>
+
+  <!-- row 4: spike_logger -->
+  <rect x="705" y="710" width="800" height="100" rx="18" fill="#FBE3D8" stroke="#C97452" stroke-width="1.7"/>
+  <text x="1105" y="748" font-size="19" font-weight="700" fill="#8A3D1F" text-anchor="middle">spike_logger.v</text>
+  <text x="1105" y="774" font-size="14.5" fill="#B85A34" text-anchor="middle"><tspan text-decoration="underline">log_count</tspan> + overflow &#183; DEPTH=1024</text>
+
+  <!-- row 5: pulse_sync (standalone, dashed) -->
+  <rect x="705" y="840" width="800" height="130" rx="18" fill="#FBE3D8" stroke="#C97452" stroke-width="1.7" stroke-dasharray="8 6"/>
+  <text x="1105" y="878" font-size="19" font-weight="700" fill="#8A3D1F" text-anchor="middle">pulse_sync.v &#8212; standalone CDC utility</text>
+  <text x="1105" y="904" font-size="14.5" fill="#B85A34" text-anchor="middle">toggle-based handshake &#8212; repeated values never dropped</text>
+  <text x="1105" y="926" font-size="13.5" fill="#9C6A4E" text-anchor="middle">(not part of the spike datapath &#8212; tested independently)</text>
+  <text x="1105" y="950" font-size="14.5" fill="#B85A34" text-anchor="middle">WIDTH=8</text>
+
+  <!-- ===================== cross-panel arrows ===================== -->
+  <path d="M605,432 L705,300" fill="none" stroke="#4472C4" stroke-width="2" marker-end="url(#mBlue)"/>
+  <text x="618" y="400" font-size="14" fill="#4472C4">drive</text>
+
+  <path d="M605,567 L705,622" fill="none" stroke="#4472C4" stroke-width="2" marker-end="url(#mBlue)"/>
+  <text x="618" y="612" font-size="14" fill="#4472C4">bridge</text>
+
+  <path d="M705,758 C 660,730 630,715 605,702" fill="none" stroke="#1D9C77" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#mGreen)"/>
+  <text x="612" y="742" font-size="14" fill="#1D9C77">checks</text>
+
+  <!-- caption -->
+  <text x="810" y="1025" font-size="15" fill="#8A8A8A" text-anchor="middle">github.com/aumkarrb/Spike_NN_ASIC &#183; Design/*.v &#183; Testbench/spike_nn_tb_layered.sv</text>
+
+</svg>
