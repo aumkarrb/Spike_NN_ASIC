@@ -7,7 +7,7 @@ module spike_logger #(
     input wire spike_in,
     input wire valid_in,
     output wire ready_out,
-    output reg [$clog2(DEPTH)-1:0] log_count,  // FIXED: Changed from $clog2(DEPTH):0
+    output reg [$clog2(DEPTH)-1:0] log_count,  
     output reg overflow
 );
 

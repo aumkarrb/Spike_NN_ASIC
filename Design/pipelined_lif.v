@@ -1,118 +1,125 @@
 `timescale 1ns/1ps
+
 module pipelined_lif #(
-    parameter Neurons = 16,
+    parameter Neurons         = 16,
     parameter Pipeline_Stages = 4
 )(
-    input wire clk,
-    input wire rst_n,
-    input wire [31:0] current_in,
-    input wire current_valid,
-    output reg spike_out,
-    output reg [15:0] voltage_out,
-    output wire [Neurons-1:0] voltage_bus
+    input  wire                          clk,
+    input  wire                          rst_n,
+
+    input  wire [31:0]                   current_in,
+    input  wire                          current_valid,
+    input  wire [$clog2(Neurons)-1:0]    current_neuron_id,
+
+    input  wire signed [15:0]            threshold_in,
+    input  wire signed [15:0]            reset_val_in,
+    input  wire [4:0]                    leak_shift_in,
+
+    output reg                           spike_out,
+    output reg  [15:0]                   voltage_out,
+    output wire [Neurons-1:0]            voltage_bus,
+
+    output wire [Neurons-1:0]            spike_bus,
+    output wire [Neurons*16-1:0]         voltage_flat
 );
 
-    localparam signed [15:0] THRESHOLD = 16'sd200;
-    localparam signed [15:0] RESET_VAL = 16'sd0;
-    localparam LEAK_SHIFT = 5;
+    localparam SEL_W  = (Neurons <= 1) ? 1 : $clog2(Neurons);
+    localparam STAGES = (Pipeline_Stages < 3) ? 3 : Pipeline_Stages;
 
-    // Neuron voltage states
-    reg signed [15:0] neuron_v_0, neuron_v_1, neuron_v_2, neuron_v_3;
-    reg signed [15:0] neuron_v_4, neuron_v_5, neuron_v_6, neuron_v_7;
-    reg signed [15:0] neuron_v_8, neuron_v_9, neuron_v_10, neuron_v_11;
-    reg signed [15:0] neuron_v_12, neuron_v_13, neuron_v_14, neuron_v_15;
-    
-    // Computation wires for neuron 0
-    wire signed [15:0] leak_0 = neuron_v_0 >>> LEAK_SHIFT;
-    wire signed [15:0] v_after_leak_0 = neuron_v_0 - leak_0;
-    wire signed [15:0] current_contrib_0 = current_valid ? $signed(current_in[15:0]) : 16'sd0;
-    wire signed [15:0] v_new_0 = v_after_leak_0 + current_contrib_0;
-    wire will_spike_0 = (v_new_0 >= THRESHOLD);
+    reg signed [15:0] neuron_v [0:Neurons-1];
+    reg signed [31:0] pending_current [0:Neurons-1];
+    reg               pending_valid   [0:Neurons-1];
 
-    // Sequential block - Neuron 0 with proper spike generation
+    integer i;
+
+    // Round-robin neuron scheduler: one neuron enters the pipeline / cycle
+    reg [SEL_W-1:0] rr_sel;
+
+    // Pipeline tag/data registers, one set per stage
+    reg               p_valid [0:STAGES-1];
+    reg [SEL_W-1:0]   p_sel   [0:STAGES-1];
+    reg signed [15:0] p_v     [0:STAGES-1];
+    reg               p_spike [0:STAGES-1];
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            neuron_v_0 <= 16'sd0;
-            spike_out <= 1'b0;
+            rr_sel <= {SEL_W{1'b0}};
+            for (i = 0; i < Neurons; i = i + 1) begin
+                neuron_v[i]        <= 16'sd0;
+                pending_current[i] <= 32'sd0;
+                pending_valid[i]   <= 1'b0;
+            end
+            for (i = 0; i < STAGES; i = i + 1) begin
+                p_valid[i] <= 1'b0;
+                p_sel[i]   <= {SEL_W{1'b0}};
+                p_v[i]     <= 16'sd0;
+                p_spike[i] <= 1'b0;
+            end
+            spike_out   <= 1'b0;
             voltage_out <= 16'h0;
         end else begin
-            // Default: no spike
-            spike_out <= 1'b0;
-            
-            if (will_spike_0) begin
-                // Spike condition met
-                neuron_v_0 <= RESET_VAL;
-                spike_out <= 1'b1;  // Assert spike for one cycle
-                voltage_out <= THRESHOLD;  // Show we reached threshold
-            end else begin
-                // Normal update
-                neuron_v_0 <= v_new_0;
-                voltage_out <= v_new_0[15:0];
+            // Latch incoming synaptic current for its target neuron,
+            // independent of the round-robin position this cycle.
+            if (current_valid) begin
+                pending_current[current_neuron_id] <= $signed(current_in);
+                pending_valid[current_neuron_id]   <= 1'b1;
             end
+
+            // Stage 0: issue neuron `rr_sel` + apply leak 
+            p_valid[0] <= 1'b1;
+            p_sel[0]   <= rr_sel;
+            p_v[0]     <= neuron_v[rr_sel] - (neuron_v[rr_sel] >>> leak_shift_in);
+            p_spike[0] <= 1'b0;
+            rr_sel     <= (rr_sel == Neurons-1) ? {SEL_W{1'b0}} : rr_sel + 1'b1;
+
+            // Stage 1: add pending synaptic current, then consume it
+            p_valid[1] <= p_valid[0];
+            p_sel[1]   <= p_sel[0];
+            p_spike[1] <= 1'b0;
+            p_v[1]     <= p_v[0] + (pending_valid[p_sel[0]] ? pending_current[p_sel[0]][15:0] : 16'sd0);
+            if (p_valid[0] && pending_valid[p_sel[0]]) begin
+                pending_valid[p_sel[0]] <= 1'b0;
+            end
+
+            // Middle pass-through stages (extra latency budget)
+            for (i = 2; i <= STAGES-2; i = i + 1) begin
+                p_valid[i] <= p_valid[i-1];
+                p_sel[i]   <= p_sel[i-1];
+                p_v[i]     <= p_v[i-1];
+                p_spike[i] <= p_spike[i-1];
+            end
+
+            // Final stage: threshold compare + commit 
+            p_valid[STAGES-1] <= p_valid[STAGES-2];
+            p_sel[STAGES-1]   <= p_sel[STAGES-2];
+            p_v[STAGES-1]     <= p_v[STAGES-2];
+            p_spike[STAGES-1] <= p_valid[STAGES-2] && (p_v[STAGES-2] >= threshold_in);
+
+            if (p_valid[STAGES-2]) begin
+                if (p_v[STAGES-2] >= threshold_in) begin
+                    neuron_v[p_sel[STAGES-2]] <= reset_val_in;
+                end else begin
+                    neuron_v[p_sel[STAGES-2]] <= p_v[STAGES-2];
+                end
+            end
+
+            // Legacy neuron-0 aliases
+            spike_out   <= p_valid[STAGES-1] && (p_sel[STAGES-1] == {SEL_W{1'b0}}) && p_spike[STAGES-1];
+            voltage_out <= neuron_v[0][15:0];
         end
     end
 
-    // Neurons 1-3
-    wire signed [15:0] leak_1 = neuron_v_1 >>> LEAK_SHIFT;
-    wire signed [15:0] v_new_1 = neuron_v_1 - leak_1 + (current_valid ? $signed(current_in[15:0]) : 16'sd0);
-    wire will_spike_1 = (v_new_1 >= THRESHOLD);
+    // Multi-neuron observability (Known Gap #2 fix)
+    assign spike_bus = (p_valid[STAGES-1] && p_spike[STAGES-1])
+                        ? ({{(Neurons-1){1'b0}}, 1'b1} << p_sel[STAGES-1])
+                        : {Neurons{1'b0}};
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            neuron_v_1 <= 16'sd0;
-        end else begin
-            neuron_v_1 <= will_spike_1 ? RESET_VAL : v_new_1;
+    genvar gv;
+    generate
+        for (gv = 0; gv < Neurons; gv = gv + 1) begin : VOLT_PACK
+            assign voltage_flat[gv*16 +: 16] = neuron_v[gv][15:0];
+            assign voltage_bus[gv]           = neuron_v[gv][0];
         end
-    end
-
-    wire signed [15:0] leak_2 = neuron_v_2 >>> LEAK_SHIFT;
-    wire signed [15:0] v_new_2 = neuron_v_2 - leak_2 + (current_valid ? $signed(current_in[15:0]) : 16'sd0);
-    wire will_spike_2 = (v_new_2 >= THRESHOLD);
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            neuron_v_2 <= 16'sd0;
-        end else begin
-            neuron_v_2 <= will_spike_2 ? RESET_VAL : v_new_2;
-        end
-    end
-
-    wire signed [15:0] leak_3 = neuron_v_3 >>> LEAK_SHIFT;
-    wire signed [15:0] v_new_3 = neuron_v_3 - leak_3 + (current_valid ? $signed(current_in[15:0]) : 16'sd0);
-    wire will_spike_3 = (v_new_3 >= THRESHOLD);
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            neuron_v_3 <= 16'sd0;
-        end else begin
-            neuron_v_3 <= will_spike_3 ? RESET_VAL : v_new_3;
-        end
-    end
-
-    // Neurons 4-15 minimal
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            neuron_v_4 <= 16'sd0;
-            neuron_v_5 <= 16'sd0;
-            neuron_v_6 <= 16'sd0;
-            neuron_v_7 <= 16'sd0;
-            neuron_v_8 <= 16'sd0;
-            neuron_v_9 <= 16'sd0;
-            neuron_v_10 <= 16'sd0;
-            neuron_v_11 <= 16'sd0;
-            neuron_v_12 <= 16'sd0;
-            neuron_v_13 <= 16'sd0;
-            neuron_v_14 <= 16'sd0;
-            neuron_v_15 <= 16'sd0;
-        end
-    end
-
-    // Voltage bus output
-    assign voltage_bus = {
-        neuron_v_15[0], neuron_v_14[0], neuron_v_13[0], neuron_v_12[0],
-        neuron_v_11[0], neuron_v_10[0], neuron_v_9[0], neuron_v_8[0],
-        neuron_v_7[0], neuron_v_6[0], neuron_v_5[0], neuron_v_4[0],
-        neuron_v_3[0], neuron_v_2[0], neuron_v_1[0], neuron_v_0[0]
-    };
+    endgenerate
 
 endmodule
