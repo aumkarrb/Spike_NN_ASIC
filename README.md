@@ -48,7 +48,7 @@ Spike_NN_ASIC/
 
 ## Module Reference
 
-![Spike_NN_ASIC top-level architecture](docs/spike_nn_asic_top_level_architecture.svg)
+![Spike_NN_ASIC top-level architecture]()
 
 `Testbench` (left) drives the `RTL Core` (right) through SystemVerilog stimulus tasks and reads results back via `spike_bus`/`log_count`. All six `Design/*.v` modules are shown with their key parameters: `event_fifo` and `weight_ram_par` feed `synapse_pipeline`, which feeds `pipelined_lif`, which feeds `spike_logger`. `pulse_sync` is drawn with a dashed outline because it's a standalone CDC utility, exercised independently in the testbench rather than being part of that chain.
 
