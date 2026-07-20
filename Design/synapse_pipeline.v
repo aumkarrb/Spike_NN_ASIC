@@ -1,108 +1,68 @@
 `timescale 1ns/1ps
+
 module synapse_pipeline #(
     parameter WIDTH = 32,
-    parameter DELAY = 8
+    parameter DELAY = 8      // pipeline depth, now actually used
 )(
-    input wire clk,
-    input wire rst_n,
-    input wire [WIDTH-1:0] event_data,
-    input wire event_valid,
-    output reg event_ready,
-    input wire [WIDTH-1:0] weight_in,
-    output reg [WIDTH-1:0] current_out,
-    output reg current_valid,
-    input wire current_ready
+    input  wire                   clk,
+    input  wire                   rst_n,
+    input  wire [WIDTH-1:0]       event_data,   // spike activation / multiplier
+    input  wire                   event_valid,
+    output wire                   event_ready,
+    input  wire [WIDTH-1:0]       weight_in,    // synaptic weight
+    output reg  [WIDTH-1:0]       current_out,  // accumulated post-synaptic current
+    output reg                    current_valid,
+    input  wire                   current_ready
 );
 
-    // Pipeline stages
-    reg [WIDTH-1:0] pipe_data_0, pipe_data_1, pipe_data_2, pipe_data_3;
-    reg [WIDTH-1:0] pipe_data_4, pipe_data_5, pipe_data_6, pipe_data_7;
-    reg pipe_valid_0, pipe_valid_1, pipe_valid_2, pipe_valid_3;
-    reg pipe_valid_4, pipe_valid_5, pipe_valid_6, pipe_valid_7;
-    reg [WIDTH-1:0] pipe_weight_0, pipe_weight_1, pipe_weight_2, pipe_weight_3;
-    reg [WIDTH-1:0] pipe_weight_4, pipe_weight_5, pipe_weight_6, pipe_weight_7;
-    
-    // Sequential block
+    // Parameterized delay line carrying each event's MAC term
+    reg [WIDTH-1:0] pipe_product [0:DELAY-1];
+    reg             pipe_valid   [0:DELAY-1];
+    integer i;
+
+    wire signed [WIDTH-1:0]   s_event_data = event_data;
+    wire signed [WIDTH-1:0]   s_weight_in  = weight_in;
+    wire signed [2*WIDTH-1:0] mac_full     = s_event_data * s_weight_in;
+
+    assign event_ready = !(current_valid && !current_ready);
+
+    reg [WIDTH-1:0] accum;
+
+    wire term_valid     = pipe_valid[DELAY-1];
+    wire [WIDTH-1:0] term = pipe_product[DELAY-1];
+    wire [WIDTH-1:0] merged   = accum + (term_valid ? term : {WIDTH{1'b0}});
+    wire             has_data = (accum != {WIDTH{1'b0}}) || term_valid;
+    wire             out_free = !current_valid || current_ready;
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            pipe_data_0 <= {WIDTH{1'b0}};
-            pipe_data_1 <= {WIDTH{1'b0}};
-            pipe_data_2 <= {WIDTH{1'b0}};
-            pipe_data_3 <= {WIDTH{1'b0}};
-            pipe_data_4 <= {WIDTH{1'b0}};
-            pipe_data_5 <= {WIDTH{1'b0}};
-            pipe_data_6 <= {WIDTH{1'b0}};
-            pipe_data_7 <= {WIDTH{1'b0}};
-            
-            pipe_valid_0 <= 1'b0;
-            pipe_valid_1 <= 1'b0;
-            pipe_valid_2 <= 1'b0;
-            pipe_valid_3 <= 1'b0;
-            pipe_valid_4 <= 1'b0;
-            pipe_valid_5 <= 1'b0;
-            pipe_valid_6 <= 1'b0;
-            pipe_valid_7 <= 1'b0;
-            
-            pipe_weight_0 <= {WIDTH{1'b0}};
-            pipe_weight_1 <= {WIDTH{1'b0}};
-            pipe_weight_2 <= {WIDTH{1'b0}};
-            pipe_weight_3 <= {WIDTH{1'b0}};
-            pipe_weight_4 <= {WIDTH{1'b0}};
-            pipe_weight_5 <= {WIDTH{1'b0}};
-            pipe_weight_6 <= {WIDTH{1'b0}};
-            pipe_weight_7 <= {WIDTH{1'b0}};
-            
-            current_out <= {WIDTH{1'b0}};
+            for (i = 0; i < DELAY; i = i + 1) begin
+                pipe_product[i] <= {WIDTH{1'b0}};
+                pipe_valid[i]   <= 1'b0;
+            end
+            accum         <= {WIDTH{1'b0}};
+            current_out   <= {WIDTH{1'b0}};
             current_valid <= 1'b0;
         end else begin
-            // Input stage
-            pipe_data_0 <= event_data;
-            pipe_valid_0 <= event_valid;
-            pipe_weight_0 <= weight_in;
-            
-            // Pipeline propagation
-            pipe_data_1 <= pipe_data_0;
-            pipe_valid_1 <= pipe_valid_0;
-            pipe_weight_1 <= pipe_weight_0;
-            
-            pipe_data_2 <= pipe_data_1;
-            pipe_valid_2 <= pipe_valid_1;
-            pipe_weight_2 <= pipe_weight_1;
-            
-            pipe_data_3 <= pipe_data_2;
-            pipe_valid_3 <= pipe_valid_2;
-            pipe_weight_3 <= pipe_weight_2;
-            
-            pipe_data_4 <= pipe_data_3;
-            pipe_valid_4 <= pipe_valid_3;
-            pipe_weight_4 <= pipe_weight_3;
-            
-            pipe_data_5 <= pipe_data_4;
-            pipe_valid_5 <= pipe_valid_4;
-            pipe_weight_5 <= pipe_weight_4;
-            
-            pipe_data_6 <= pipe_data_5;
-            pipe_valid_6 <= pipe_valid_5;
-            pipe_weight_6 <= pipe_weight_5;
-            
-            pipe_data_7 <= pipe_data_6;
-            pipe_valid_7 <= pipe_valid_6;
-            pipe_weight_7 <= pipe_weight_6;
-            
-            // Output stage - multiply weight by event data
-            if (pipe_valid_7) begin
-                current_out <= pipe_weight_7;  // Direct weight output
-                current_valid <= 1'b1;
+            // Stage 0: entry - compute this cycle's MAC term
+            pipe_product[0] <= (event_valid && event_ready) ? mac_full[WIDTH-1:0] : {WIDTH{1'b0}};
+            pipe_valid[0]   <= event_valid && event_ready;
+
+            // Propagate through the DELAY-deep pipeline
+            for (i = 1; i < DELAY; i = i + 1) begin
+                pipe_product[i] <= pipe_product[i-1];
+                pipe_valid[i]   <= pipe_valid[i-1];
+            end
+
+            if (out_free) begin
+                current_out   <= merged;
+                current_valid <= has_data;
+                accum         <= {WIDTH{1'b0}};
             end else begin
-                current_out <= {WIDTH{1'b0}};
-                current_valid <= 1'b0;
+                accum <= merged;
+                // current_out / current_valid hold their values
             end
         end
-    end
-    
-    // Combinational block
-    always @(*) begin
-        event_ready = 1'b1;
     end
 
 endmodule
