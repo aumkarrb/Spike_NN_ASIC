@@ -27,6 +27,10 @@ Spike_NN_ASIC/
 │   ├── synapse_pipeline.v             # Pipelined synaptic multiply-accumulate unit
 │   └── weight_ram_par.v               # Parallel-access weight RAM (synapse memory)
 │
+├── docs/
+│   ├── spike_nn_asic_top_level_architecture.svg   # System-level architecture diagram
+│   └── pipelined_lif_datapath.svg                 # pipelined_lif.v internal datapath diagram
+│
 ├── References/
 |
 │
@@ -44,107 +48,19 @@ Spike_NN_ASIC/
 
 ## Module Reference
 
-### `pipelined_lif.v` — round-robin pipelined LIF neuron array
+![Spike_NN_ASIC top-level architecture](docs/spike_nn_asic_top_level_architecture.svg)
 
-| | |
-|---|---|
-| **Ports** | `clk`, `rst_n`, `current_in[31:0]`, `current_valid`, `current_neuron_id[$clog2(Neurons)-1:0]`, `threshold_in[15:0]`, `reset_val_in[15:0]`, `leak_shift_in[4:0]`, `spike_out`, `voltage_out[15:0]`, `voltage_bus[Neurons-1:0]`, `spike_bus[Neurons-1:0]`, `voltage_flat[Neurons*16-1:0]` |
-| **Parameters** | `Neurons = 16`, `Pipeline_Stages = 4` |
-
-- Implements leaky-integrate-and-fire dynamics as `v_new = v − (v >>> leak_shift_in) + injected_current`, with spike-on-threshold and reset-to-`reset_val_in`.
-- **All 16 neurons are live.** A single shared state array (`neuron_v[0:Neurons-1]`) is serviced by a free-running round-robin scheduler — exactly one neuron enters the pipeline per cycle, so full array coverage takes `Neurons` cycles. There is no per-neuron hardware duplication and therefore no way for a neuron to be silently unconnected.
-- **Genuine pipelining.** `Pipeline_Stages` sets real update latency: stage 0 applies the leak, stage 1 adds any pending synaptic current, middle stages pass state through, and the final stage performs the threshold compare and commit. Throughput remains one neuron issued per cycle regardless of `Pipeline_Stages`; only latency scales with it.
-- **Decoupled current injection.** A per-neuron pending-current register latches `current_in` against `current_neuron_id` on arrival and is consumed the next time that neuron is serviced by the scheduler — so a synaptic current arriving between two service slots is never lost. A second injection to the same neuron before it has been serviced overwrites the pending value rather than accumulating with it; this is an intentional consequence of time-multiplexing a single physical update unit across 16 neurons, not a defect.
-- `threshold_in`, `reset_val_in`, and `leak_shift_in` are runtime input ports, not fixed `localparam`s.
-- `spike_bus`/`voltage_flat` expose every neuron's spike flag and voltage; `spike_out`/`voltage_out`/`voltage_bus` are retained as neuron-0 aliases for backward compatibility with single-neuron consumers.
-
-### `event_fifo.v` — asynchronous (dual-clock) AER event FIFO
-
-| | |
-|---|---|
-| **Ports** | `wr_clk`, `wr_rst_n`, `data_in`, `valid_in`, `ready_out`, `fifo_full`, `rd_clk`, `rd_rst_n`, `data_out`, `valid_out`, `ready_in`, `fifo_empty` |
-| **Parameters** | `DEPTH = 32` (must be a power of two), `WIDTH = 16` |
-
-- A genuine dual-clock asynchronous FIFO: independent `wr_clk`/`rd_clk` domains, binary-plus-Gray write and read pointers, each Gray pointer carried across the clock boundary through a true two-flop synchronizer.
-- `fifo_full`/`fifo_empty` are derived from the standard Gray-code MSB-invert comparison between local and synchronized pointers — safe against the multi-bit metastability risk of synchronizing a binary counter directly.
-- `DEPTH` must be a power of two, which is a requirement of the Gray-code pointer/wraparound scheme used here, not an arbitrary restriction.
-
-### `pulse_sync.v` — toggle-based clock-domain-crossing synchronizer
-
-| | |
-|---|---|
-| **Ports** | `src_clk`, `src_rst_n`, `pulse_in[WIDTH-1:0]`, `pulse_valid_in`, `dst_clk`, `dst_rst_n`, `pulse_out[WIDTH-1:0]`, `sync_valid` |
-| **Parameters** | `WIDTH = 8` |
-
-- Crosses two genuinely independent clock domains (`src_clk`/`dst_clk`) using a toggle-on-every-valid-event scheme in the source domain and a true two-flop synchronizer on the toggle bit in the destination domain, with a third register for edge detection.
-- Because the toggle bit flips on every valid strobe regardless of the data value, **repeated identical values are never dropped** — "new data arrived" is decoupled from "the value changed," which a level-comparison approach cannot guarantee.
-- `pulse_valid_in` is an explicit strobe input; the source-domain data register is held stable for the full toggle period, so the destination domain can safely capture it with a plain two-stage register once the toggle edge is detected.
-
-### `synapse_pipeline.v` — pipelined synaptic multiply-accumulate unit
-
-| | |
-|---|---|
-| **Ports** | `clk`, `rst_n`, `event_data[31:0]`, `event_valid`, `event_ready`, `weight_in[31:0]`, `current_out[31:0]`, `current_valid`, `current_ready` |
-| **Parameters** | `WIDTH = 32`, `DELAY = 8` |
-
-- Computes a real multiply-accumulate term (`event_data × weight_in`) per synaptic event, propagates it through a `DELAY`-deep pipeline, and integrates it into a running accumulator that persists across multiple synaptic inputs.
-- `DELAY` genuinely controls pipeline depth via a parameterized delay-line array, rather than a hardcoded stage count.
-- **Real backpressure.** `event_ready` deasserts whenever the output register holds an undrained result and `current_ready` is low, so a new event is not accepted (and silently lost) while the consumer is stalled. Accumulated backlog is folded into `current_out` on the next successful handshake once the consumer becomes ready again.
-
-### `weight_ram_par.v` — parallel-access weight RAM
-
-| | |
-|---|---|
-| **Ports** | `clk`, `addr[RD_PORTS*$clog2(DEPTH)-1:0]`, `data_out[RD_PORTS*WIDTH-1:0]`, `waddr[$clog2(DEPTH)-1:0]`, `data_in[31:0]`, `we` |
-| **Parameters** | `DEPTH = 256`, `WIDTH = 32`, `RD_PORTS = 4` |
-
-- One synchronous write port plus `RD_PORTS` independent combinational read lanes, each with its own address, so `RD_PORTS` weights can genuinely be fetched in the same cycle — e.g. to feed multiple synapse lanes or multiple neurons in parallel.
-- All locations initialize to `32'h00000010`.
-- Read/write addresses are bit-packed across lanes (`addr[p*AW +: AW]` / `data_out[p*WIDTH +: WIDTH]` for lane `p`) to keep the port list a fixed width regardless of `RD_PORTS`.
-
-### `spike_logger.v` — spike counter and log
-
-| | |
-|---|---|
-| **Ports** | `clk`, `rst_n`, `spike_in`, `valid_in`, `ready_out`, `log_count[$clog2(DEPTH)-1:0]`, `overflow` |
-| **Parameters** | `DEPTH = 1024` |
-
-- Records a free-running cycle-count timestamp into a log array each time `spike_in && valid_in` is true and capacity remains, incrementing `log_count`.
-- Asserts `overflow` for one cycle whenever a spike arrives while the log is full; clears it on the next successful write. `ready_out` reflects remaining capacity.
-- Unchanged from the original implementation — its behavior already matched its description, so no fix was required here.
+`Testbench` (left) drives the `RTL Core` (right) through SystemVerilog stimulus tasks and reads results back via `spike_bus`/`log_count`. All six `Design/*.v` modules are shown with their key parameters: `event_fifo` and `weight_ram_par` feed `synapse_pipeline`, which feeds `pipelined_lif`, which feeds `spike_logger`. `pulse_sync` is drawn with a dashed outline because it's a standalone CDC utility, exercised independently in the testbench rather than being part of that chain.
 
 ---
 
-## Datapath (Verified End-to-End)
+## Pipelined LIF Datapath
 
-```
-External Spike Input
-        │
-        ▼
-┌───────────────────┐   wr_clk domain          rd_clk domain
-│   event_fifo.v    │───────────────╫─────────────►
-└─────────┬──────────┘   (Gray-coded pointers, 2-flop CDC sync)
-          │
-          ▼
-┌────────────────────────┐    ┌────────────────────┐
-│  synapse_pipeline.v     │◄───│  weight_ram_par.v   │
-│  (real MAC + accumulate,│    │  (RD_PORTS parallel │
-│   DELAY-stage pipeline) │    │   read lanes)        │
-└─────────┬────────────────┘    └────────────────────┘
-          │
-          ▼
-┌───────────────────────────┐
-│    pipelined_lif.v        │  round-robin, all 16 neurons live,
-│                            │  genuinely pipelined update
-└─────────┬───────────────────┘
-          │
-          ▼
-┌────────────────────┐
-│  spike_logger.v     │  Counts spikes, logs timestamps
-└────────────────────┘
-```
+![pipelined_lif.v internal datapath](docs/pipelined_lif_datapath.svg)
 
-`Testbench/spike_nn_tb_layered.sv`'s Test 8 wires this exact chain together procedurally, cycle by cycle, and confirms `spike_logger`'s count increments as a direct result of an event entering `event_fifo` — proving the full datapath, not just each module in isolation.
+One neuron is serviced per cycle by a free-running round-robin counter (`rr_sel`). Each service slot fetches that neuron's pending synaptic current, applies leak and injection, compares the result against `threshold_in`, and commits the neuron's state — spiking and resetting to `reset_val_in` when `v' ≥ threshold_in`, otherwise writing back the new voltage. `threshold_in`, `reset_val_in`, and `leak_shift_in` are live input ports rather than fixed `localparam`s, and `spike_bus`/`voltage_flat` expose every neuron's state for observability, not just neuron 0.
+
+This diagram zooms into `pipelined_lif.v` specifically; the full chain it sits in is verified end-to-end by `Testbench/spike_nn_tb_layered.sv`'s Test 8, which wires `event_fifo → synapse_pipeline → pipelined_lif → spike_logger` together procedurally, cycle by cycle, and confirms `spike_logger`'s count increments as a direct result of an event entering `event_fifo`.
 
 ---
 
