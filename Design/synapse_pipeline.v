@@ -24,14 +24,26 @@ module synapse_pipeline #(
     wire signed [WIDTH-1:0]   s_weight_in  = weight_in;
     wire signed [2*WIDTH-1:0] mac_full     = s_event_data * s_weight_in;
 
+    function automatic signed [WIDTH-1:0] sat_mac(input signed [2*WIDTH-1:0] wide);
+        reg signed [WIDTH-1:0] mac_max, mac_min;
+        begin
+            mac_max = {1'b0, {(WIDTH-1){1'b1}}};   // +(2^(WIDTH-1) - 1)
+            mac_min = {1'b1, {(WIDTH-1){1'b0}}};   // -(2^(WIDTH-1))
+            if (wide > mac_max)      sat_mac = mac_max;
+            else if (wide < mac_min) sat_mac = mac_min;
+            else                     sat_mac = wide[WIDTH-1:0];
+        end
+    endfunction
+
     assign event_ready = !(current_valid && !current_ready);
 
     reg [WIDTH-1:0] accum;
+    reg accum_pending;
 
     wire term_valid     = pipe_valid[DELAY-1];
     wire [WIDTH-1:0] term = pipe_product[DELAY-1];
     wire [WIDTH-1:0] merged   = accum + (term_valid ? term : {WIDTH{1'b0}});
-    wire             has_data = (accum != {WIDTH{1'b0}}) || term_valid;
+    wire             has_data = accum_pending || term_valid;
     wire             out_free = !current_valid || current_ready;
 
     always @(posedge clk or negedge rst_n) begin
@@ -41,11 +53,12 @@ module synapse_pipeline #(
                 pipe_valid[i]   <= 1'b0;
             end
             accum         <= {WIDTH{1'b0}};
+            accum_pending <= 1'b0;
             current_out   <= {WIDTH{1'b0}};
             current_valid <= 1'b0;
         end else begin
-            // Stage 0: entry - compute this cycle's MAC term
-            pipe_product[0] <= (event_valid && event_ready) ? mac_full[WIDTH-1:0] : {WIDTH{1'b0}};
+            // Stage 0: entry - compute this cycle's saturated MAC term
+            pipe_product[0] <= (event_valid && event_ready) ? sat_mac(mac_full) : {WIDTH{1'b0}};
             pipe_valid[0]   <= event_valid && event_ready;
 
             // Propagate through the DELAY-deep pipeline
@@ -58,9 +71,10 @@ module synapse_pipeline #(
                 current_out   <= merged;
                 current_valid <= has_data;
                 accum         <= {WIDTH{1'b0}};
+                accum_pending <= 1'b0;
             end else begin
                 accum <= merged;
-                // current_out / current_valid hold their values
+                if (term_valid) accum_pending <= 1'b1;
             end
         end
     end

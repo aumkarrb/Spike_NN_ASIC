@@ -26,6 +26,21 @@ module pipelined_lif #(
     localparam SEL_W  = (Neurons <= 1) ? 1 : $clog2(Neurons);
     localparam STAGES = (Pipeline_Stages < 3) ? 3 : Pipeline_Stages;
 
+    function automatic signed [15:0] sat16_sum(input signed [15:0] base,
+                                                input signed [31:0] delta,
+                                                input                delta_valid);
+        reg signed [32:0] wide;
+        begin
+            wide = {{17{base[15]}}, base} + (delta_valid ? {{1{delta[31]}}, delta} : 33'sd0);
+            if (wide > 33'sd32767)
+                sat16_sum = 16'sd32767;
+            else if (wide < -33'sd32768)
+                sat16_sum = -16'sd32768;
+            else
+                sat16_sum = wide[15:0];
+        end
+    endfunction
+
     reg signed [15:0] neuron_v [0:Neurons-1];
     reg signed [31:0] pending_current [0:Neurons-1];
     reg               pending_valid   [0:Neurons-1];
@@ -58,11 +73,17 @@ module pipelined_lif #(
             spike_out   <= 1'b0;
             voltage_out <= 16'h0;
         end else begin
-            // Latch incoming synaptic current for its target neuron,
-            // independent of the round-robin position this cycle.
+
             if (current_valid) begin
-                pending_current[current_neuron_id] <= $signed(current_in);
-                pending_valid[current_neuron_id]   <= 1'b1;
+                if (pending_valid[current_neuron_id] &&
+                    !(p_valid[0] && pending_valid[current_neuron_id] &&
+                      p_sel[0] == current_neuron_id)) begin
+                    pending_current[current_neuron_id] <=
+                        pending_current[current_neuron_id] + $signed(current_in);
+                end else begin
+                    pending_current[current_neuron_id] <= $signed(current_in);
+                end
+                pending_valid[current_neuron_id] <= 1'b1;
             end
 
             // Stage 0: issue neuron `rr_sel` + apply leak 
@@ -72,12 +93,13 @@ module pipelined_lif #(
             p_spike[0] <= 1'b0;
             rr_sel     <= (rr_sel == Neurons-1) ? {SEL_W{1'b0}} : rr_sel + 1'b1;
 
-            // Stage 1: add pending synaptic current, then consume it
+            // Stage 1: add pending synaptic current, then consume it.
             p_valid[1] <= p_valid[0];
             p_sel[1]   <= p_sel[0];
             p_spike[1] <= 1'b0;
-            p_v[1]     <= p_v[0] + (pending_valid[p_sel[0]] ? pending_current[p_sel[0]][15:0] : 16'sd0);
-            if (p_valid[0] && pending_valid[p_sel[0]]) begin
+            p_v[1]     <= sat16_sum(p_v[0], pending_current[p_sel[0]], pending_valid[p_sel[0]]);
+            if (p_valid[0] && pending_valid[p_sel[0]] &&
+                !(current_valid && current_neuron_id == p_sel[0])) begin
                 pending_valid[p_sel[0]] <= 1'b0;
             end
 
@@ -109,7 +131,7 @@ module pipelined_lif #(
         end
     end
 
-    // Multi-neuron observability (Known Gap #2 fix)
+    // Multi-neuron observability 
     assign spike_bus = (p_valid[STAGES-1] && p_spike[STAGES-1])
                         ? ({{(Neurons-1){1'b0}}, 1'b1} << p_sel[STAGES-1])
                         : {Neurons{1'b0}};
