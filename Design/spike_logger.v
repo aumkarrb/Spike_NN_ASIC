@@ -32,7 +32,6 @@ module spike_logger #(
                 write_ptr <= write_ptr + 1'b1;
                 log_count <= log_count + 1'b1;
             end
-
             overflow <= (spike_in && valid_in && !can_write);
         end
     end
