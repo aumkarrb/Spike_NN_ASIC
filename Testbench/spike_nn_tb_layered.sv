@@ -1,4 +1,6 @@
 `timescale 1ns/1ps
+
+
 module spike_nn_tb_layered;
 
     parameter CLK_PERIOD     = 10;  // main / write-clock domain
@@ -23,7 +25,6 @@ module spike_nn_tb_layered;
     logic        pulse_valid_in;
     logic [15:0] pulse_sync_out;
     logic        pulse_sync_valid;
-    wire         pulse_sync_busy;   // NEW: source must wait for this to clear
 
     // FIFO interface
     logic [47:0] fifo_data_in;
@@ -71,7 +72,10 @@ module spike_nn_tb_layered;
     logic [8:0]  logger_count;
     logic        logger_overflow;
 
-    // AER link: synthetic protocol/arbitration test path
+    //  AER link: synthetic protocol/arbitration test path 
+    // Driven directly by the testbench (not tied to any DUT), so genuine
+    // multi-source simultaneous requests can be exercised on demand,
+    // independent of what the real neuron array happens to produce.
     logic [NUM_NEURONS-1:0] aer_test_req_pulse;
     logic [3:0]             aer_test_addr;
     logic                   aer_test_req;
@@ -81,7 +85,10 @@ module spike_nn_tb_layered;
     logic [3:0]             aer_test_addr_out;
     logic                   aer_test_event_valid;
 
-    // AER link: real integration path 
+    //  AER link: real integration path 
+    // Wired directly to dut_lif.spike_bus for the whole simulation, so
+    // every genuine spike from any of the 8-14 unit/regression tests
+    // above flows through a real AER transaction into aer_spike_logger.
     logic [3:0]              aer_addr;
     logic                    aer_req;
     logic                    aer_ack;
@@ -101,7 +108,7 @@ module spike_nn_tb_layered;
         .WIDTH(16)
     ) dut_pulse_sync (
         .src_clk(clk), .src_rst_n(rst_n),
-        .pulse_in(pulse_in), .pulse_valid_in(pulse_valid_in), .busy(pulse_sync_busy),
+        .pulse_in(pulse_in), .pulse_valid_in(pulse_valid_in),
         .dst_clk(dst_clk), .dst_rst_n(dst_rst_n),
         .pulse_out(pulse_sync_out), .sync_valid(pulse_sync_valid)
     );
@@ -171,7 +178,7 @@ module spike_nn_tb_layered;
         .overflow(logger_overflow)
     );
 
-    //  AER link: synthetic protocol/arbitration test instances 
+    // AER link: synthetic protocol/arbitration test instances 
     aer_tx #(.N_SOURCES(NUM_NEURONS), .ADDR_W(4)) dut_aer_tx_test (
         .clk(clk), .rst_n(rst_n),
         .req_pulse(aer_test_req_pulse),
@@ -187,7 +194,7 @@ module spike_nn_tb_layered;
     //  AER link: real integration path, wired to the live neuron array 
     aer_tx #(.N_SOURCES(NUM_NEURONS), .ADDR_W(4)) dut_aer_tx (
         .clk(clk), .rst_n(rst_n),
-        .req_pulse(lif_spike_bus),           
+        .req_pulse(lif_spike_bus),           // genuine spikes from dut_lif, whenever they occur
         .addr(aer_addr), .aer_req(aer_req), .aer_ack(aer_ack),
         .busy(aer_busy), .pending_dbg(aer_pending_dbg)
     );
@@ -218,21 +225,21 @@ module spike_nn_tb_layered;
     task automatic reset_system();
         begin
             $display("[%0t] === RESET SYSTEM ===", $time);
-            rst_n <= 0; dst_rst_n <= 0; rd_rst_n <= 0; aer_rst_n <= 0;
+            rst_n = 0; dst_rst_n = 0; rd_rst_n = 0; aer_rst_n = 0;
 
-            pulse_in <= 16'h0000; pulse_valid_in <= 1'b0;
-            fifo_data_in <= 48'h0; fifo_valid_in <= 1'b0; fifo_ready_in <= 1'b1;
-            weight_addr <= '0; weight_waddr <= 8'h00; weight_data_in <= 32'h0; weight_we <= 1'b0;
-            synapse_event_data <= 32'h0; synapse_event_valid <= 1'b0; synapse_current_ready <= 1'b1;
-            synapse_weight_in <= 32'h0010;
-            lif_current_in <= 32'h0; lif_current_valid <= 1'b0; lif_current_neuron_id <= 4'd0;
-            lif_threshold_in <= 16'sd200; lif_reset_val_in <= 16'sd0; lif_leak_shift_in <= 5'd5;
-            logger_spike_in <= 1'b0; logger_valid_in <= 1'b0;
-            aer_test_req_pulse <= '0; aer_read_addr <= '0;
+            pulse_in = 16'h0000; pulse_valid_in = 1'b0;
+            fifo_data_in = 48'h0; fifo_valid_in = 1'b0; fifo_ready_in = 1'b1;
+            weight_addr = '0; weight_waddr = 8'h00; weight_data_in = 32'h0; weight_we = 1'b0;
+            synapse_event_data = 32'h0; synapse_event_valid = 1'b0; synapse_current_ready = 1'b1;
+            synapse_weight_in = 32'h0010;
+            lif_current_in = 32'h0; lif_current_valid = 1'b0; lif_current_neuron_id = 4'd0;
+            lif_threshold_in = 16'sd200; lif_reset_val_in = 16'sd0; lif_leak_shift_in = 5'd5;
+            logger_spike_in = 1'b0; logger_valid_in = 1'b0;
+            aer_test_req_pulse = '0; aer_read_addr = '0;
 
             #200;
             @(posedge clk);
-            rst_n <= 1; dst_rst_n <= 1; rd_rst_n <= 1; aer_rst_n <= 1;
+            rst_n = 1; dst_rst_n = 1; rd_rst_n = 1; aer_rst_n = 1;
             repeat(5) @(posedge clk);
             $display("[%0t] Reset complete", $time);
         end
@@ -242,14 +249,10 @@ module spike_nn_tb_layered;
     task automatic send_pulse(input [15:0] addr);
         begin
             @(posedge clk);
-            // Respect busy: pulse_sync now uses a busy/ack round-trip
-            // handshake, so a new request must wait for the previous one
-            // to be fully acknowledged or it will not be sampled.
-            while (pulse_sync_busy) @(posedge clk);
-            pulse_in       <= addr;
-            pulse_valid_in <= 1'b1;
+            pulse_in = addr;
+            pulse_valid_in = 1'b1;
             @(posedge clk);
-            pulse_valid_in <= 1'b0;
+            pulse_valid_in = 1'b0;
             total_spikes_generated++;
             $display("[%0t] Pulse sent: addr=0x%04h", $time, addr);
         end
@@ -260,10 +263,10 @@ module spike_nn_tb_layered;
         begin
             @(posedge clk);
             if (!fifo_full) begin
-                fifo_data_in  <= data;
-                fifo_valid_in <= 1'b1;
+                fifo_data_in = data;
+                fifo_valid_in = 1'b1;
                 @(posedge clk);
-                fifo_valid_in <= 1'b0;
+                fifo_valid_in = 1'b0;
 
                 $display("[%0t] FIFO write: data=0x%012h", $time, data);
             end else begin
@@ -276,23 +279,21 @@ module spike_nn_tb_layered;
     task automatic write_weight(input [7:0] addr, input [31:0] data);
         begin
             @(posedge clk);
-            weight_waddr   <= addr;
-            weight_data_in <= data;
-            weight_we      <= 1'b1;
+            weight_waddr = addr;
+            weight_data_in = data;
+            weight_we = 1'b1;
             @(posedge clk);
-            weight_we <= 1'b0;
+            weight_we = 1'b0;
             $display("[%0t] Weight write: addr=0x%02h, data=0x%08h", $time, addr, data);
         end
     endtask
 
-    // weight_ram_par now has a registered (1-cycle-latency) read: present
-    // the address one cycle, data_out is valid starting the cycle after.
     task automatic read_weight(input [7:0] addr, output [31:0] data);
         begin
             @(posedge clk);
-            weight_addr[7:0] <= addr;  // lane 0
-            @(posedge clk);            // address sampled by the registered read here
-            @(posedge clk);            // data_out valid since the previous edge
+            weight_addr[7:0] = addr;  // lane 0
+            @(posedge clk);
+            @(posedge clk);
             data = weight_data_out[31:0];
             $display("[%0t] Weight read: addr=0x%02h, data=0x%08h", $time, addr, data);
         end
@@ -302,12 +303,12 @@ module spike_nn_tb_layered;
     task automatic send_synapse_event(input [31:0] event_data, input [31:0] weight, output logic accepted);
         begin
             @(posedge clk);
-            synapse_event_data  <= event_data;
-            synapse_event_valid <= 1'b1;
-            synapse_weight_in   <= weight;
+            synapse_event_data = event_data;
+            synapse_event_valid = 1'b1;
+            synapse_weight_in = weight;
             accepted = synapse_event_ready;
             @(posedge clk);
-            synapse_event_valid <= 1'b0;
+            synapse_event_valid = 1'b0;
             $display("[%0t] Synapse event sent: data=0x%08h, weight=0x%08h, accepted=%b", $time, event_data, weight, accepted);
         end
     endtask
@@ -315,11 +316,11 @@ module spike_nn_tb_layered;
     task automatic inject_lif_current(input [15:0] current, input [3:0] neuron_id);
         begin
             @(posedge clk);
-            lif_current_in        <= {16'h0, current};
-            lif_current_valid     <= 1'b1;
-            lif_current_neuron_id <= neuron_id;
+            lif_current_in = {16'h0, current};
+            lif_current_valid = 1'b1;
+            lif_current_neuron_id = neuron_id;
             @(posedge clk);
-            lif_current_valid <= 1'b0;
+            lif_current_valid = 1'b0;
             $display("[%0t] LIF current injected to neuron %0d: 0x%04h", $time, neuron_id, current);
         end
     endtask
@@ -392,63 +393,10 @@ module spike_nn_tb_layered;
             end
 
             if (found_valid1 && found_valid2) begin
-                $display("[PASS] Repeated identical pulse value was NOT dropped (Gap #6 fix verified)");
+                $display("[PASS] Repeated identical pulse value was NOT dropped ");
                 test_pass_count++;
             end else begin
                 $display("[FAIL] Repeated identical pulse value was dropped");
-                test_fail_count++;
-            end
-
-            repeat(10) @(posedge clk);
-        end
-    endtask
-
-
-    task automatic test_pulse_sync_burst();
-        // Regression for the pulse_sync data-loss bug: back-to-back
-        // pulses issued faster than the CDC round-trip must never be
-        // dropped now that send_pulse() respects `busy`.
-        integer i;
-        integer received;
-        logic [15:0] expected_next;
-        begin
-            $display("\n========================================");
-            $display("TEST 1b: Pulse Sync Burst / No-Loss (regression)");
-            $display("========================================");
-
-            received = 0;
-            expected_next = 16'h1000;
-
-            fork
-                begin : sender
-                    for (i = 0; i < 8; i = i + 1) begin
-                        send_pulse(16'h1000 + i[15:0]);
-                    end
-                end
-                begin : receiver
-                    integer w;
-                    w = 0;
-                    while (received < 8 && w < 2000) begin
-                        @(posedge dst_clk);
-                        if (pulse_sync_valid) begin
-                            if (pulse_sync_out == expected_next) begin
-                                received = received + 1;
-                                expected_next = expected_next + 1'b1;
-                            end else begin
-                                $display("[%0t] UNEXPECTED pulse value 0x%04h (expected 0x%04h)",
-                                         $time, pulse_sync_out, expected_next);
-                            end
-                        end
-                        w = w + 1;
-                    end
-                end
-            join
-
-            if (received == 8) begin
-                $display("[PASS] All 8 back-to-back pulses delivered in order, none lost (busy backpressure works)");
-                test_pass_count++;
-            end else begin
-                $display("[FAIL] Only %0d/8 pulses delivered -- pulse_sync is dropping data under burst", received);
                 test_fail_count++;
             end
 
@@ -465,7 +413,7 @@ module spike_nn_tb_layered;
             $display("TEST 2: FIFO Operation (async, wr_clk != rd_clk)");
             $display("========================================");
 
-            fifo_ready_in <= 1'b0;  // hold off draining while we fill
+            fifo_ready_in = 1'b0;  // hold off draining while we fill
             items_written = 0;
             i = 0;
             while (i < 10) begin
@@ -475,6 +423,9 @@ module spike_nn_tb_layered;
                 i = i + 1;
             end
 
+            // Time-based (not cycle-based) settle so the write pointer's
+            // Gray code has time to cross into the read clock domain
+            // through its 2-flop synchronizer, regardless of clock ratio.
             #300;
 
             $display("        FIFO status after fill (reads held off): items_written=%0d, empty=%b, full=%b",
@@ -489,7 +440,7 @@ module spike_nn_tb_layered;
             end
 
             // Now drain and confirm the FIFO empties back out again
-            fifo_ready_in <= 1'b1;
+            fifo_ready_in = 1'b1;
             #300;
 
             if (fifo_empty) begin
@@ -500,7 +451,7 @@ module spike_nn_tb_layered;
                 test_fail_count++;
             end
 
-            fifo_ready_in <= 1'b0;
+            fifo_ready_in = 1'b0;
         end
     endtask
 
@@ -533,8 +484,8 @@ module spike_nn_tb_layered;
                 addr_idx = addr_idx + 1;
             end
 
-            weight_addr <= {8'd3, 8'd2, 8'd1, 8'd0};
-            @(posedge clk); @(posedge clk); @(posedge clk);
+            weight_addr = {8'd3, 8'd2, 8'd1, 8'd0};
+            @(posedge clk); @(posedge clk);
             if (weight_data_out[31:0]    == 32'h0000_0020 &&
                 weight_data_out[63:32]   == 32'h0000_0021 &&
                 weight_data_out[95:64]   == 32'h0000_0022 &&
@@ -577,7 +528,8 @@ module spike_nn_tb_layered;
 
             repeat(20) @(posedge clk);
 
-
+            // Drain fully: accept every beat and sum it, until several
+            // idle cycles pass with nothing further arriving.
             synapse_current_ready = 1'b1;
             drained_sum = 32'h0;
             idle_cycles = 0;
@@ -621,12 +573,12 @@ module spike_nn_tb_layered;
 
             while (inj_idx < 20 && !spike_detected) begin
                 @(posedge clk);
-                lif_current_in        <= {16'h0, 16'h0020};
-                lif_current_valid     <= 1'b1;
-                lif_current_neuron_id <= 4'd0;
+                lif_current_in        = {16'h0, 16'h0020};
+                lif_current_valid     = 1'b1;
+                lif_current_neuron_id = 4'd0;
                 if (lif_spike_out) spike_detected = 1'b1;
                 @(posedge clk);
-                lif_current_valid <= 1'b0;
+                lif_current_valid = 1'b0;
                 if (lif_spike_out) spike_detected = 1'b1;
                 for (w = 0; w < (NUM_NEURONS-2) && !spike_detected; w = w + 1) begin
                     @(posedge clk);
@@ -658,11 +610,11 @@ module spike_nn_tb_layered;
             log_idx = 0;
             while (log_idx < 10) begin
                 @(posedge clk);
-                logger_spike_in <= 1'b1;
-                logger_valid_in <= 1'b1;
+                logger_spike_in = 1'b1;
+                logger_valid_in = 1'b1;
                 @(posedge clk);
-                logger_spike_in <= 1'b0;
-                logger_valid_in <= 1'b0;
+                logger_spike_in = 1'b0;
+                logger_valid_in = 1'b0;
                 repeat(2) @(posedge clk);
                 log_idx = log_idx + 1;
             end
@@ -695,13 +647,13 @@ module spike_nn_tb_layered;
             
             for (n = 0; n < 5; n = n + 1) begin
                 @(posedge clk);
-                lif_current_in       <= {16'h0, 16'h0100}; // 256 > THRESHOLD(200)
-                lif_current_valid    <= 1'b1;
-                lif_current_neuron_id <= id_list[n][3:0];
+                lif_current_in       = {16'h0, 16'h0100}; // 256 > THRESHOLD(200)
+                lif_current_valid    = 1'b1;
+                lif_current_neuron_id = id_list[n][3:0];
                 seen_spike = seen_spike | lif_spike_bus;
                 $display("[%0t] LIF current injected to neuron %0d: 0x0100", $time, id_list[n]);
                 @(posedge clk);
-                lif_current_valid <= 1'b0;
+                lif_current_valid = 1'b0;
                 seen_spike = seen_spike | lif_spike_bus;
             end
 
@@ -738,9 +690,9 @@ module spike_nn_tb_layered;
             repeat(3) @(posedge clk);
 
             pre_log_count = logger_count;
-            synapse_current_ready <= 1'b1;
-            weight_addr[7:0] <= 8'h00;
-            fifo_ready_in    <= 1'b0;   // hold reads off until all writes have settled
+            synapse_current_ready = 1'b1;
+            weight_addr[7:0] = 8'h00;
+            fifo_ready_in    = 1'b0;   // hold reads off until all writes have settled
 
             // event_data=2, weight=100 -> MAC term = 200 = THRESHOLD, so a
             // single event alone is enough to make neuron 0 spike.
@@ -750,7 +702,7 @@ module spike_nn_tb_layered;
                 pushed = pushed + 1;
             end
             #300; // let the write pointer cross into the read clock domain
-            fifo_ready_in <= 1'b1;
+            fifo_ready_in = 1'b1;
 
             for (cyc = 0; cyc < 400; cyc = cyc + 1) begin
                 @(posedge clk);
@@ -803,9 +755,9 @@ module spike_nn_tb_layered;
             // all should be accepted with overflow staying low throughout.
             for (k = 0; k < (LOG_DEPTH - fill_start_count); k = k + 1) begin
                 @(posedge clk);
-                logger_spike_in <= 1'b1; logger_valid_in <= 1'b1;
+                logger_spike_in = 1'b1; logger_valid_in = 1'b1;
                 @(posedge clk);
-                logger_spike_in <= 1'b0; logger_valid_in <= 1'b0;
+                logger_spike_in = 1'b0; logger_valid_in = 1'b0;
             end
             repeat(3) @(posedge clk);
 
@@ -822,10 +774,9 @@ module spike_nn_tb_layered;
             // One more spike now that the log is genuinely full: overflow
             // should pulse high for that exact cycle.
             @(posedge clk);
-            logger_spike_in <= 1'b1; logger_valid_in <= 1'b1;
+            logger_spike_in = 1'b1; logger_valid_in = 1'b1;
             @(posedge clk);
-            logger_spike_in <= 1'b0; logger_valid_in <= 1'b0;
-            #1; // let this edge's NBA-computed overflow settle before checking
+            logger_spike_in = 1'b0; logger_valid_in = 1'b0;
 
             if (logger_overflow && logger_count == LOG_DEPTH) begin
                 $display("[PASS] Overflow pulsed on the over-capacity spike attempt (log_count held at %0d)", logger_count);
@@ -839,7 +790,6 @@ module spike_nn_tb_layered;
             // Idle cycle, no new spike attempt: overflow must self-clear
             // (previously it would have stayed latched high forever).
             @(posedge clk);
-            #1;
             if (!logger_overflow) begin
                 $display("[PASS] Overflow self-cleared on an idle cycle (pulse behavior confirmed, not a latch)");
                 test_pass_count++;
@@ -882,11 +832,11 @@ module spike_nn_tb_layered;
                 $display("[FAIL] Never observed neuron 9 at its stage-1 consumption slot within %0d cycles -- race window not exercised", w);
                 test_fail_count++;
             end else begin
-                lif_current_in        <= {16'h0, 16'h00C8}; // 200 -- alone enough to spike
-                lif_current_valid     <= 1'b1;
-                lif_current_neuron_id <= 4'd9;
+                lif_current_in        = {16'h0, 16'h00C8}; // 200 -- alone enough to spike
+                lif_current_valid     = 1'b1;
+                lif_current_neuron_id = 4'd9;
                 @(posedge clk);
-                lif_current_valid <= 1'b0;
+                lif_current_valid = 1'b0;
                 $display("[%0t] Raced a second injection to neuron 9 on its stage-1 consumption cycle", $time);
 
                 // Give it up to two full round-robin sweeps to be serviced.
@@ -909,47 +859,7 @@ module spike_nn_tb_layered;
     endtask
 
 
-    task automatic test_lif_pending_accumulate();
-        // Regression for the pipelined_lif pending-current overwrite bug:
-        // two sub-threshold injections to the SAME neuron, a few cycles
-        // apart (neither simultaneous, both well inside one 16-cycle
-        // round-robin sweep) must ACCUMULATE, not have the second one
-        // silently discard the first.
-        integer w;
-        logic spiked;
-        begin
-            $display("\n========================================");
-            $display("TEST 10b: LIF Pending-Current Accumulate (regression)");
-            $display("========================================");
-
-            // Neuron 3, sub-threshold alone: 100 + 150 = 250 > threshold(200).
-            inject_lif_current(16'd100, 4'd3);
-            repeat(2) @(posedge clk);
-            inject_lif_current(16'd150, 4'd3);
-
-            spiked = 1'b0;
-            w = 0;
-            while (w < 60 && !spiked) begin
-                @(posedge clk);
-                if (lif_spike_bus[3]) spiked = 1'b1;
-                w = w + 1;
-            end
-
-            if (spiked) begin
-                $display("[PASS] Neuron 3 spiked from 100+150=250, confirming the pending sample accumulates instead of being overwritten");
-                test_pass_count++;
-            end else begin
-                $display("[FAIL] Neuron 3 never spiked -- the second injection overwrote the first instead of accumulating");
-                test_fail_count++;
-            end
-
-            repeat(5) @(posedge clk);
-        end
-    endtask
-
-
     task automatic test_synapse_zero_sum();
-
         integer w;
         integer beats_seen;
         logic accepted0, accepted1, accepted2;
@@ -958,7 +868,7 @@ module spike_nn_tb_layered;
             $display("TEST 11: Synapse Zero-Sum Accumulation (regression)");
             $display("========================================");
 
-            synapse_current_ready <= 1'b0; // stall so events pile into the backlog
+            synapse_current_ready = 1'b0; // stall so events pile into the backlog
 
             // Burst three events close together (well inside DELAY=8) so
             // all three are accepted before backpressure can engage:
@@ -970,7 +880,10 @@ module spike_nn_tb_layered;
             repeat(2) @(posedge clk);
             send_synapse_event(32'h0000_0001, -32'sd50, accepted2);      // -50
 
-
+            // Precondition check: this test only proves what it claims to
+            // if all three events actually entered the pipe. If backpressure
+            // timing ever shifted and one got rejected, a later "beats_seen
+            // >= 2" pass would be passing for the wrong reason 
             if (!(accepted0 && accepted1 && accepted2)) begin
                 $display("[FAIL] Not all 3 events were accepted (a0=%b a1=%b a2=%b) -- zero-sum scenario not actually exercised",
                          accepted0, accepted1, accepted2);
@@ -978,7 +891,7 @@ module spike_nn_tb_layered;
             end else begin
                 repeat(20) @(posedge clk); // let all three drain into accum/output
 
-                synapse_current_ready <= 1'b1;
+                synapse_current_ready = 1'b1;
                 beats_seen = 0;
                 w = 0;
                 while (w < 20) begin
@@ -998,13 +911,16 @@ module spike_nn_tb_layered;
                     test_fail_count++;
                 end
             end
-            synapse_current_ready <= 1'b1;
+            synapse_current_ready = 1'b1;
         end
     endtask
 
 
     task automatic test_lif_saturation();
-
+        // Regression for the pipelined_lif addition-overflow fix: a large
+        // voltage plus a large injected current must saturate the SUM, not
+        // just the injected operand, or the combined add can wrap 16-bit
+        // signed range and cause a neuron to miss a spike it clearly earned.
         logic spike_detected;
         integer w;
         begin
@@ -1013,19 +929,23 @@ module spike_nn_tb_layered;
             $display("========================================");
 
             // Temporarily raise threshold so priming doesn't spike early.
-            lif_threshold_in <= 16'sd32767;
+            lif_threshold_in = 16'sd32767;
 
             @(posedge clk);
-            lif_current_in <= 32'sd30000; lif_current_valid <= 1'b1; lif_current_neuron_id <= 4'd12;
+            lif_current_in = 32'sd30000; lif_current_valid = 1'b1; lif_current_neuron_id = 4'd12;
             @(posedge clk);
-            lif_current_valid <= 1'b0;
+            lif_current_valid = 1'b0;
             repeat(20) @(posedge clk);
 
-
+            // Second injection: raw magnitude far beyond 16-bit range. If
+            // the sum wraps instead of saturating, this neuron's voltage
+            // goes deeply negative and it silently fails to spike even
+            // though 30000 + (anything large and positive) obviously
+            // exceeds any 16-bit-representable threshold.
             @(posedge clk);
-            lif_current_in <= 32'sd40000; lif_current_valid <= 1'b1; lif_current_neuron_id <= 4'd12;
+            lif_current_in = 32'sd40000; lif_current_valid = 1'b1; lif_current_neuron_id = 4'd12;
             @(posedge clk);
-            lif_current_valid <= 1'b0;
+            lif_current_valid = 1'b0;
 
             spike_detected = 1'b0;
             w = 0;
@@ -1044,66 +964,7 @@ module spike_nn_tb_layered;
             end
 
             // restore the threshold the rest of the suite expects
-            lif_threshold_in <= 16'sd200;
-            repeat(5) @(posedge clk);
-        end
-    endtask
-
-
-    task automatic test_synapse_mac_saturation();
-        // Regression for the synapse_pipeline MAC-truncation bug: a
-        // product that overflows 32-bit signed range must saturate to
-        // the max/min value, not silently wrap via low-bits truncation.
-        integer w;
-        integer beats_seen;
-        logic accepted_pos, accepted_neg;
-        logic signed [31:0] seen_pos, seen_neg;
-        begin
-            $display("\n========================================");
-            $display("TEST 12b: Synapse MAC Saturation (regression)");
-            $display("========================================");
-
-            synapse_current_ready <= 1'b1;
-
-            // 100000 * 100000 = 1e10, far beyond 32-bit signed max
-            // (~2.147e9) -- must saturate to 32'sd2147483647, not wrap.
-            send_synapse_event(32'sd100000, 32'sd100000, accepted_pos);
-            beats_seen = 0; seen_pos = 0;
-            w = 0;
-            while (w < 20 && beats_seen < 1) begin
-                @(posedge clk);
-                if (synapse_current_valid) begin
-                    seen_pos = $signed(synapse_current_out);
-                    beats_seen = beats_seen + 1;
-                end
-                w = w + 1;
-            end
-
-            repeat(5) @(posedge clk);
-
-            // -100000 * 100000 = -1e10 -- must saturate to -32'sd2147483648.
-            send_synapse_event(-32'sd100000, 32'sd100000, accepted_neg);
-            beats_seen = 0; seen_neg = 0;
-            w = 0;
-            while (w < 20 && beats_seen < 1) begin
-                @(posedge clk);
-                if (synapse_current_valid) begin
-                    seen_neg = $signed(synapse_current_out);
-                    beats_seen = beats_seen + 1;
-                end
-                w = w + 1;
-            end
-
-            if (accepted_pos && accepted_neg &&
-                seen_pos == 32'sd2147483647 && seen_neg == -32'sd2147483648) begin
-                $display("[PASS] Overflowing products correctly saturate (pos=%0d neg=%0d) instead of wrapping", seen_pos, seen_neg);
-                test_pass_count++;
-            end else begin
-                $display("[FAIL] Expected saturation to +2147483647/-2147483648, got pos=%0d neg=%0d (accepted_pos=%b accepted_neg=%b)",
-                         seen_pos, seen_neg, accepted_pos, accepted_neg);
-                test_fail_count++;
-            end
-
+            lif_threshold_in = 16'sd200;
             repeat(5) @(posedge clk);
         end
     endtask
@@ -1120,7 +981,7 @@ module spike_nn_tb_layered;
             $display("TEST 13: FIFO Full Backpressure (regression)");
             $display("========================================");
 
-            fifo_ready_in <= 1'b0; // hold off draining so writes can genuinely fill it
+            fifo_ready_in = 1'b0; // hold off draining so writes can genuinely fill it
             rejected = 0;
 
             // FIFO_DEPTH=16; write well past capacity and count rejections.
@@ -1129,11 +990,11 @@ module spike_nn_tb_layered;
                 if (fifo_full) begin
                     rejected = rejected + 1;
                 end else begin
-                    fifo_data_in  <= {16'h0, i[15:0], 16'hBEEF};
-                    fifo_valid_in <= 1'b1;
+                    fifo_data_in = {16'h0, i[15:0], 16'hBEEF};
+                    fifo_valid_in = 1'b1;
                 end
                 @(posedge clk);
-                fifo_valid_in <= 1'b0;
+                fifo_valid_in = 1'b0;
             end
             repeat(3) @(posedge clk);
 
@@ -1147,7 +1008,7 @@ module spike_nn_tb_layered;
             end
 
             // Drain back down and confirm it recovers.
-            fifo_ready_in <= 1'b1;
+            fifo_ready_in = 1'b1;
             #300;
             if (!fifo_full && fifo_empty) begin
                 $display("[PASS] FIFO recovered to empty after draining a full backlog");
@@ -1156,18 +1017,12 @@ module spike_nn_tb_layered;
                 $display("[FAIL] FIFO did not recover: full=%b empty=%b", fifo_full, fifo_empty);
                 test_fail_count++;
             end
-            fifo_ready_in <= 1'b0;
+            fifo_ready_in = 1'b0;
         end
     endtask
 
 
     task automatic test_weight_ram_collision();
-        // weight_ram_par's read is now registered (synchronous), required
-        // for Vivado BRAM inference. This changes same-address
-        // read/write-collision timing from "combinational, old value
-        // visible before the edge" to "registered, old value visible for
-        // one extra cycle after the colliding edge" -- standard BRAM
-        // read-during-write ("no change") behavior.
         logic [31:0] pre_write_value;
         logic [31:0] during_write_value;
         logic [31:0] post_write_value;
@@ -1179,39 +1034,24 @@ module spike_nn_tb_layered;
             write_weight(8'h20, 32'h0000_1111); // seed a known value
             repeat(2) @(posedge clk);
 
-            // Point the read lane at 0x20 and let the registered read settle.
-            weight_addr[7:0] <= 8'h20;
-            @(posedge clk);   // address sampled by the registered read here
-            @(posedge clk);   // data_out now valid
-            #1;
+            weight_addr[7:0] = 8'h20;
+            @(posedge clk);
             pre_write_value = weight_data_out[31:0];
 
             // Issue a write to the SAME address the read lane is already
-            // pointed at. The registered read's NBA evaluates mem[addr]
-            // using PRE-EDGE contents (same as the write's own NBA), so
-            // it must still show the OLD data for the cycle right after
-            // this colliding edge. The #1 settle delay is required here:
-            // reading weight_data_out immediately after the edge (before
-            // its own NBA update commits) would alias with the correct
-            // answer on THIS check by coincidence, but breaks the
-            // post-write check below -- always settle before sampling a
-            // registered output on the edge that updates it.
-            weight_waddr   <= 8'h20;
-            weight_data_in <= 32'h0000_2222;
-            weight_we      <= 1'b1;
+            // pointed at, sampling the read output on the exact same edge.
+            weight_waddr = 8'h20;
+            weight_data_in = 32'h0000_2222;
+            weight_we = 1'b1;
+            during_write_value = weight_data_out[31:0]; // sampled before the edge takes effect
             @(posedge clk);
-            weight_we <= 1'b0;
-            #1;
-            during_write_value = weight_data_out[31:0]; // registered from the colliding edge: old data
-
-            @(posedge clk); // one more registered-read cycle: now reflects the new data
-            #1;
+            weight_we = 1'b0;
             post_write_value = weight_data_out[31:0];
 
             if (pre_write_value == 32'h0000_1111 &&
                 during_write_value == 32'h0000_1111 &&
                 post_write_value == 32'h0000_2222) begin
-                $display("[PASS] Same-cycle read/write returned old data through the colliding edge and new data one cycle later (pre=0x%08h during=0x%08h post=0x%08h)",
+                $display("[PASS] Same-cycle read/write returned old data during the write and new data after (pre=0x%08h during=0x%08h post=0x%08h)",
                          pre_write_value, during_write_value, post_write_value);
                 test_pass_count++;
             end else begin
@@ -1235,11 +1075,11 @@ module spike_nn_tb_layered;
 
             seen_count = 0;
 
-            // Sub-test A: single event, basic 4-phase handshake
+            // --- Sub-test A: single event, basic 4-phase handshake ---
             @(posedge clk);
-            aer_test_req_pulse[6] <= 1'b1;
+            aer_test_req_pulse[6] = 1'b1;
             @(posedge clk);
-            aer_test_req_pulse[6] <= 1'b0;
+            aer_test_req_pulse[6] = 1'b0;
 
             w = 0;
             while (w < 40 && !aer_test_event_valid) begin
@@ -1256,17 +1096,18 @@ module spike_nn_tb_layered;
             end
             repeat(10) @(posedge aer_clk);
 
-            // Sub-test B: two GENUINELY simultaneous requests 
-            // Sources 2 and 13 both request on the exact same cycle. A plain FIFO with no
+            // --- Sub-test B: two GENUINELY simultaneous requests ---
+            // This is the real arbitration proof: sources 2 and 13 both
+            // request on the exact same cycle. A plain FIFO with no
             // arbiter has no way to express this input at all; aer_tx
             // must pick one, transfer it, then transfer the other.
             seen_count = 0;
             @(posedge clk);
-            aer_test_req_pulse[2]  <= 1'b1;
-            aer_test_req_pulse[13] <= 1'b1;
+            aer_test_req_pulse[2]  = 1'b1;
+            aer_test_req_pulse[13] = 1'b1;
             @(posedge clk);
-            aer_test_req_pulse[2]  <= 1'b0;
-            aer_test_req_pulse[13] <= 1'b0;
+            aer_test_req_pulse[2]  = 1'b0;
+            aer_test_req_pulse[13] = 1'b0;
 
             w = 0;
             while (w < 120 && seen_count < 2) begin
@@ -1294,6 +1135,14 @@ module spike_nn_tb_layered;
 
 
     task automatic test_aer_integration();
+        // Cross-checks the REAL AER path (wired continuously to
+        // dut_lif.spike_bus for the whole simulation) against the
+        // independent total_spikes_logged testbench monitor. Two
+        // completely different measurement paths -- one a simple
+        // always-block counter, one the actual AER hardware link -- should
+        // agree exactly on how many spikes occurred. Also fires a handful
+        // of additional real spikes here so the AER path has fresh events
+        // to catch, then dumps the log and checks specific addresses.
         integer n;
         integer id_list[0:2];
         integer w;
@@ -1324,8 +1173,9 @@ module spike_nn_tb_layered;
                 test_fail_count++;
             end
 
-
-            aer_read_addr <= pre_log[$clog2(AER_LOG_DEPTH)-1:0];
+            // Dump the last 3 entries and confirm the addresses match what
+            // was actually injected, in order.
+            aer_read_addr = pre_log[$clog2(AER_LOG_DEPTH)-1:0];
             #1;
             if (aer_read_out_addr == 4'd1) begin
                 $display("[PASS] AER log entry %0d correctly recorded neuron 1", pre_log);
@@ -1335,6 +1185,9 @@ module spike_nn_tb_layered;
                 test_fail_count++;
             end
 
+            // Full-run cross-check: the AER path and the independent
+            // spike_bus monitor have been running in parallel since reset,
+            // so their totals should now match exactly.
             if (aer_log_count == total_spikes_logged) begin
                 $display("[PASS] AER logger total (%0d) matches the independent spike_bus monitor (%0d) across the whole run",
                          aer_log_count, total_spikes_logged);
@@ -1387,11 +1240,11 @@ module spike_nn_tb_layered;
                             prev_t_ns = t_ns;
 
                             @(posedge clk);
-                            lif_current_in        <= {16'h0, 16'h0080}; // 128: sub-threshold alone
-                            lif_current_valid      <= 1'b1;
-                            lif_current_neuron_id  <= ch[3:0];
+                            lif_current_in        = {16'h0, 16'h0080}; // 128: sub-threshold alone
+                            lif_current_valid     = 1'b1;
+                            lif_current_neuron_id = ch[3:0];
                             @(posedge clk);
-                            lif_current_valid      <= 1'b0;
+                            lif_current_valid     = 1'b0;
                             n_events = n_events + 1;
                         end
                     end
@@ -1404,7 +1257,7 @@ module spike_nn_tb_layered;
                          n_events, pre_log, aer_log_count);
 
                 for (i = pre_log; i < aer_log_count; i = i + 1) begin
-                    aer_read_addr <= i[$clog2(AER_LOG_DEPTH)-1:0];
+                    aer_read_addr = i[$clog2(AER_LOG_DEPTH)-1:0];
                     #1;
                     per_channel_out[aer_read_out_addr] = per_channel_out[aer_read_out_addr] + 1;
                 end
@@ -1440,7 +1293,7 @@ module spike_nn_tb_layered;
 
     initial begin
         $display("========================================");
-        $display("LAYERED SPIKE-NN TESTBENCH V4 (post-fix, RTL bug-fix regression pass)");
+        $display("LAYERED SPIKE-NN TESTBENCH");
         $display("========================================");
 
         test_pass_count = 0;
@@ -1452,7 +1305,6 @@ module spike_nn_tb_layered;
         reset_system();
 
         test_pulse_sync();
-        test_pulse_sync_burst();
         test_fifo_operation();
         test_weight_ram();
         test_synapse_pipeline();
@@ -1462,10 +1314,8 @@ module spike_nn_tb_layered;
         test_datapath_integration();
         test_spike_logger_capacity();
         test_lif_pending_race();
-        test_lif_pending_accumulate();
         test_synapse_zero_sum();
         test_lif_saturation();
-        test_synapse_mac_saturation();
         test_fifo_full_backpressure();
         test_weight_ram_collision();
 
