@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 module aer_tx #(
     parameter N_SOURCES = 16,
-    parameter ADDR_W    = 4          
+    parameter ADDR_W    = 4          // must satisfy 2**ADDR_W >= N_SOURCES
 )(
     input  wire                   clk,
     input  wire                   rst_n,
@@ -13,7 +13,7 @@ module aer_tx #(
     input  wire                   aer_ack,     // four-phase acknowledge (from the RX's domain)
 
     output wire                   busy,        // at least one source is pending or being serviced
-    output wire [N_SOURCES-1:0]   pending_dbg  // debug/observability: raw pending vector
+    output wire [N_SOURCES-1:0]   pending_dbg  
 );
 
     localparam S_IDLE          = 2'd0;
@@ -34,9 +34,9 @@ module aer_tx #(
             ack_sync2 <= ack_sync1;
         end
     end
-
-    // Fixed-priority-from-rr_ptr round-robin picker over the current
-    // (pre-update) pending vector.
+    // Round-robin priority pick among currently-pending sources, starting
+    // the scan at rr_ptr so no single low-address source can starve
+    // higher-address ones under sustained load.
     reg [ADDR_W-1:0] next_sel;
     reg              next_sel_valid;
     integer k;
@@ -57,52 +57,6 @@ module aer_tx #(
     assign busy        = (state != S_IDLE) || (|pending);
     assign pending_dbg = pending;
 
-    reg [1:0]           next_state;
-    reg [N_SOURCES-1:0]  next_pending;
-    reg [ADDR_W-1:0]     next_rr_ptr;
-    reg [ADDR_W-1:0]     next_addr;
-    reg                  next_aer_req;
-
-    always @* begin
-        // Latch new requests every cycle regardless of FSM state, so
-        // nothing arriving mid-transaction is lost.
-        next_pending = pending | req_pulse;
-        next_state   = state;
-        next_rr_ptr  = rr_ptr;
-        next_addr    = addr;
-        next_aer_req = aer_req;
-
-        case (state)
-            S_IDLE: begin
-                if (next_sel_valid) begin
-                    next_addr    = next_sel;
-                    next_aer_req = 1'b1;
-                    next_state   = S_REQ_ASSERTED;
-                    next_rr_ptr  = (next_sel == N_SOURCES-1) ? {ADDR_W{1'b0}} : next_sel + 1'b1;
-                    if (!req_pulse[next_sel]) begin
-                        next_pending[next_sel] = 1'b0;
-                    end
-                end
-            end
-
-            S_REQ_ASSERTED: begin
-                if (ack_sync2) begin
-                    next_aer_req = 1'b0;      // sender's half of the return-to-zero handshake
-                    next_state   = S_WAIT_ACK_LOW;
-                end
-            end
-
-            S_WAIT_ACK_LOW: begin
-                if (!ack_sync2) begin
-                    next_state = S_IDLE;      // full four-phase cycle complete
-                end
-            end
-
-            default: next_state = S_IDLE;
-        endcase
-    end
-
-
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             state    <= S_IDLE;
@@ -111,11 +65,38 @@ module aer_tx #(
             addr     <= {ADDR_W{1'b0}};
             aer_req  <= 1'b0;
         end else begin
-            state    <= next_state;
-            pending  <= next_pending;
-            rr_ptr   <= next_rr_ptr;
-            addr     <= next_addr;
-            aer_req  <= next_aer_req;
+            // Latch new requests every cycle regardless of FSM state, so
+            // nothing arriving mid-transaction is lost.
+            pending <= pending | req_pulse;
+
+            case (state)
+                S_IDLE: begin
+                    if (next_sel_valid) begin
+                        addr    <= next_sel;
+                        aer_req <= 1'b1;
+                        state   <= S_REQ_ASSERTED;
+                        rr_ptr  <= (next_sel == N_SOURCES-1) ? {ADDR_W{1'b0}} : next_sel + 1'b1;
+                        if (!req_pulse[next_sel]) begin
+                            pending[next_sel] <= 1'b0;
+                        end
+                    end
+                end
+
+                S_REQ_ASSERTED: begin
+                    if (ack_sync2) begin
+                        aer_req <= 1'b0;      // sender's half of the return-to-zero handshake
+                        state   <= S_WAIT_ACK_LOW;
+                    end
+                end
+
+                S_WAIT_ACK_LOW: begin
+                    if (!ack_sync2) begin
+                        state <= S_IDLE;      // full four-phase cycle complete
+                    end
+                end
+
+                default: state <= S_IDLE;
+            endcase
         end
     end
 
