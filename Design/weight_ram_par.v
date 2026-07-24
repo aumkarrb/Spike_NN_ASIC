@@ -5,8 +5,9 @@ module weight_ram_par #(
     parameter RD_PORTS = 4        // number of parallel read lanes
 )(
     input  wire                              clk,
+
     input  wire [RD_PORTS*$clog2(DEPTH)-1:0] addr,
-    output reg  [RD_PORTS*WIDTH-1:0]         data_out,
+    output wire [RD_PORTS*WIDTH-1:0]         data_out,
 
     // single write port
     input  wire [$clog2(DEPTH)-1:0]          waddr,
@@ -24,13 +25,10 @@ module weight_ram_par #(
             mem[waddr] <= data_in;
         end
     end
-
     genvar p;
     generate
         for (p = 0; p < RD_PORTS; p = p + 1) begin : READ_LANES
-            always @(posedge clk) begin
-                data_out[p*WIDTH +: WIDTH] <= mem[addr[p*AW +: AW]];
-            end
+            assign data_out[p*WIDTH +: WIDTH] = mem[addr[p*AW +: AW]];
         end
     endgenerate
 
