@@ -1,0 +1,181 @@
+========================================
+LAYERED SPIKE-NN TESTBENCH
+========================================
+[0] === RESET SYSTEM ===
+VCD info: dumpfile spike_nn_layered.vcd opened for output.
+[255000] Reset complete
+
+========================================
+TEST 1: Pulse Synchronization (true CDC)
+========================================
+[275000] Pulse sent: addr=0xabcd
+[PASS] Pulse sync generated valid signal at cycle 3
+[375000] Pulse sent: addr=0x1234
+[475000] Pulse sent: addr=0x1234
+[PASS] Repeated identical pulse value was NOT dropped 
+
+========================================
+TEST 2: FIFO Operation (async, wr_clk != rd_clk)
+========================================
+[625000] FIFO write: data=0x000000000100
+[655000] FIFO write: data=0x000000010101
+[685000] FIFO write: data=0x000000020102
+[715000] FIFO write: data=0x000000030103
+[745000] FIFO write: data=0x000000040104
+[775000] FIFO write: data=0x000000050105
+[805000] FIFO write: data=0x000000060106
+[835000] FIFO write: data=0x000000070107
+[865000] FIFO write: data=0x000000080108
+[895000] FIFO write: data=0x000000090109
+        FIFO status after fill (reads held off): items_written=10, empty=0, full=0
+[PASS] Written data crossed the wr_clk -> rd_clk boundary (fifo_empty deasserted)
+[PASS] FIFO drained back to empty after enabling reads
+
+========================================
+TEST 3: Weight RAM Access (lane 0)
+========================================
+[1515000] Weight write: addr=0x00, data=0x00000020
+[1535000] Weight write: addr=0x01, data=0x00000021
+[1555000] Weight write: addr=0x02, data=0x00000022
+[1575000] Weight write: addr=0x03, data=0x00000023
+[1595000] Weight write: addr=0x04, data=0x00000024
+[1615000] Weight write: addr=0x05, data=0x00000025
+[1635000] Weight write: addr=0x06, data=0x00000026
+[1655000] Weight write: addr=0x07, data=0x00000027
+[1735000] Weight read: addr=0x00, data=0x00000020
+[1765000] Weight read: addr=0x01, data=0x00000021
+[1795000] Weight read: addr=0x02, data=0x00000022
+[1825000] Weight read: addr=0x03, data=0x00000023
+[1855000] Weight read: addr=0x04, data=0x00000024
+[1885000] Weight read: addr=0x05, data=0x00000025
+[1915000] Weight read: addr=0x06, data=0x00000026
+[1945000] Weight read: addr=0x07, data=0x00000027
+[PASS] All 4 read lanes returned correct data in parallel, same cycle
+
+========================================
+TEST 4: Synapse Pipeline (real MAC + accumulate)
+========================================
+[1985000] Synapse event sent: data=0x00000002, weight=0x00000064, accepted=1
+[2025000] Synapse event sent: data=0x00000002, weight=0x00000064, accepted=1
+[2065000] Synapse event sent: data=0x00000002, weight=0x00000064, accepted=1
+[2105000] Synapse event sent: data=0x00000002, weight=0x00000064, accepted=0
+[2145000] Synapse event sent: data=0x00000002, weight=0x00000064, accepted=0
+        Synapse beat: current=0x000000c8 running_sum=0x000000c8
+        Synapse beat: current=0x00000190 running_sum=0x00000258
+[PASS] Synapse pipeline MAC+accumulate: drained 0x00000258 matches expected 0x00000258
+
+========================================
+TEST 5: LIF Neuron Operation (neuron 0, gradual leaky-integrate)
+========================================
+[PASS] Neuron 0 spiked after 8 injections (leaky-integrate accumulation)
+
+========================================
+TEST 6: Spike Logger
+========================================
+[PASS] Logger recorded correct count: 10
+
+========================================
+TEST 7: Multi-Neuron Array (neurons 0,3,7,11,15)
+========================================
+[4185000] LIF current injected to neuron 0: 0x0100
+[4205000] LIF current injected to neuron 3: 0x0100
+[4225000] LIF current injected to neuron 7: 0x0100
+[4245000] LIF current injected to neuron 11: 0x0100
+[4265000] LIF current injected to neuron 15: 0x0100
+[PASS] All 5 targeted neurons in the array spiked independently (spike_bus=0x8889)
+
+========================================
+TEST 8: Full Datapath Integration
+(event_fifo -> synapse_pipeline -> pipelined_lif -> spike_logger)
+========================================
+[5095000] Weight write: addr=0x00, data=0x00000064
+[5145000] FIFO write: data=0x000000020000
+[5165000] FIFO write: data=0x000000020000
+[5185000] FIFO write: data=0x000000020000
+[5205000] FIFO write: data=0x000000020000
+[5225000] FIFO write: data=0x000000020000
+[5245000] FIFO write: data=0x000000020000
+[PASS] Datapath integration: spike propagated fifo->synapse->lif->logger (log_count 10 -> 11)
+
+========================================
+TEST 9: Spike Logger Capacity & Overflow (regression)
+========================================
+[PASS] Logger reached full LOG_DEPTH=256 capacity with no premature overflow (log_count=256)
+[PASS] Overflow pulsed on the over-capacity spike attempt (log_count held at 256)
+[14585000] WARNING: Logger overflow
+[PASS] Overflow self-cleared on an idle cycle (pulse behavior confirmed, not a latch)
+
+========================================
+TEST 10: LIF Same-Cycle Injection Race (regression)
+========================================
+[14615000] LIF current injected to neuron 9: 0x0032
+[14715000] Raced a second injection to neuron 9 on its stage-1 consumption cycle
+[PASS] Neuron 9 spiked from the raced injection (previously silently dropped)
+
+========================================
+TEST 11: Synapse Zero-Sum Accumulation (regression)
+========================================
+[14915000] Synapse event sent: data=0x00000001, weight=0x00000001, accepted=1
+[14955000] Synapse event sent: data=0x00000001, weight=0x00000032, accepted=1
+[14995000] Synapse event sent: data=0x00000001, weight=0xffffffce, accepted=1
+        Beat 1: current=1
+        Beat 2: current=0
+[PASS] Zero-sum backlog produced a second beat instead of being silently dropped (2 beats seen)
+
+========================================
+TEST 12: LIF Saturation Regression (sum, not just operand)
+========================================
+[PASS] Neuron 12 correctly spiked from a combined sum that would overflow a naive 16-bit add
+
+========================================
+TEST 13: FIFO Full Backpressure (regression)
+========================================
+[PASS] FIFO correctly asserted fifo_full and rejected 4 over-capacity write attempts
+[PASS] FIFO recovered to empty after draining a full backlog
+
+========================================
+TEST 14: Weight RAM Same-Cycle Read/Write Collision (regression)
+========================================
+[16515000] Weight write: addr=0x20, data=0x00001111
+[PASS] Same-cycle read/write returned old data during the write and new data after (pre=0x00001111 during=0x00001111 post=0x00002222)
+
+========================================
+TEST 15: AER Link Protocol & Arbitration (aer_tx.v / aer_rx.v)
+========================================
+[PASS] AER single-event handshake: address 6 correctly transferred
+[PASS] Simultaneous requests (2 and 13) both arbitrated and delivered, none lost (order: 13, 2)
+
+========================================
+TEST 16: AER Integration & Cross-Check (real spike_bus -> AER -> aer_spike_logger)
+========================================
+[18105000] LIF current injected to neuron 1: 0x0100
+[18725000] LIF current injected to neuron 6: 0x0100
+[19345000] LIF current injected to neuron 14: 0x0100
+        aer_log_count=12 (started at 9) total_spikes_logged=12
+[PASS] AER logger recorded exactly 3 new events for the 3 real spikes just generated
+[PASS] AER log entry 9 correctly recorded neuron 1
+[PASS] AER logger total (12) matches the independent spike_bus monitor (12) across the whole run
+
+========================================
+TEST 17: Dataset Replay (synthetic_spike_dataset.txt)
+========================================
+        Replayed 315 input events. AER log grew from 12 to 89 entries.
+        Output spikes -- hot channels (2,7,11): 16 total | other 13 channels: 61 total
+[PASS] Dataset replay produced output activity and the AER log captured it
+[PASS] Hot channels (2,7,11) show elevated per-channel output activity vs. the 13 baseline channels, as expected from their elevated input rate
+
+========================================
+TEST SUMMARY
+========================================
+Total Tests Passed : 34
+Total Tests Failed : 0
+Pulse-Sync Stimuli Sent : 3
+Total LIF Neuron Spikes : 146
+Total Cycles       : 3423
+========================================
+*** ALL TESTS PASSED ***
+testbench.sv:1348: $finish called at 34425000 (1ps)
+Finding VCD file...
+./spike_nn_layered.vcd
+[2026-07-24 19:00:46 UTC] Opening EPWave...
+Done
