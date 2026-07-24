@@ -73,17 +73,9 @@ module pipelined_lif #(
             spike_out   <= 1'b0;
             voltage_out <= 16'h0;
         end else begin
-
             if (current_valid) begin
-                if (pending_valid[current_neuron_id] &&
-                    !(p_valid[0] && pending_valid[current_neuron_id] &&
-                      p_sel[0] == current_neuron_id)) begin
-                    pending_current[current_neuron_id] <=
-                        pending_current[current_neuron_id] + $signed(current_in);
-                end else begin
-                    pending_current[current_neuron_id] <= $signed(current_in);
-                end
-                pending_valid[current_neuron_id] <= 1'b1;
+                pending_current[current_neuron_id] <= $signed(current_in);
+                pending_valid[current_neuron_id]   <= 1'b1;
             end
 
             // Stage 0: issue neuron `rr_sel` + apply leak 
@@ -92,8 +84,6 @@ module pipelined_lif #(
             p_v[0]     <= neuron_v[rr_sel] - (neuron_v[rr_sel] >>> leak_shift_in);
             p_spike[0] <= 1'b0;
             rr_sel     <= (rr_sel == Neurons-1) ? {SEL_W{1'b0}} : rr_sel + 1'b1;
-
-            // Stage 1: add pending synaptic current, then consume it.
             p_valid[1] <= p_valid[0];
             p_sel[1]   <= p_sel[0];
             p_spike[1] <= 1'b0;
@@ -131,7 +121,6 @@ module pipelined_lif #(
         end
     end
 
-    // Multi-neuron observability 
     assign spike_bus = (p_valid[STAGES-1] && p_spike[STAGES-1])
                         ? ({{(Neurons-1){1'b0}}, 1'b1} << p_sel[STAGES-1])
                         : {Neurons{1'b0}};
