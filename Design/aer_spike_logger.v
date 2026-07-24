@@ -13,7 +13,9 @@ module aer_spike_logger #(
 
     output reg  [$clog2(DEPTH):0] log_count,
     output reg                    overflow,
-    
+
+    // Read-back interface: dump the (address, timestamp) log after the
+    // fact, e.g. to compare against a reference event-based dataset.
     input  wire [$clog2(DEPTH)-1:0] read_addr,
     output wire [ADDR_W-1:0]        read_out_addr,
     output wire [31:0]              read_out_time
