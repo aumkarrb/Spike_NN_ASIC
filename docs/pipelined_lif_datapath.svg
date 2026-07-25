@@ -1,0 +1,97 @@
+<svg viewBox="0 0 1760 760" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+
+  <defs>
+    <marker id="mGrey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,1.5 L8,5 L0,8.5 z" fill="#898781"/>
+    </marker>
+    <marker id="mPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,1.5 L8,5 L0,8.5 z" fill="#534AB7"/>
+    </marker>
+    <marker id="mGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,1.5 L8,5 L0,8.5 z" fill="#0F6E56"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="880" y="40" font-size="22" font-weight="700" fill="#3A3835" text-anchor="middle">pipelined_lif.v</text>
+  <text x="880" y="62" font-size="13" fill="#898781" text-anchor="middle">round-robin, 16-neuron leaky integrate-and-fire array · one neuron serviced per cycle</text>
+
+  <!-- Config input (top, dashed tan) -->
+  <rect x="620" y="90" width="480" height="80" rx="14" fill="#F1EFE8" stroke="#898781" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="860" y="124" font-size="13.5" font-weight="600" fill="#5F5E5A" text-anchor="middle">threshold_in / reset_val_in / leak_shift_in</text>
+  <text x="860" y="146" font-size="11.5" fill="#898781" text-anchor="middle">live input ports — not localparams</text>
+
+  <!-- dashed line from config to Compare+Commit -->
+  <path d="M860,170 L860,200 L1480,200 L1480,280" stroke="#898781" stroke-width="1.6" fill="none" stroke-dasharray="6 4" marker-end="url(#mGrey)"/>
+
+  <!-- "one neuron / cycle" label -->
+  <text x="62" y="310" font-size="12" fill="#898781">one neuron / cycle</text>
+  <line x1="52" y1="320" x2="300" y2="320" stroke="#C9C6BF" stroke-width="1.4"/>
+
+  <!-- Pipeline stages row -->
+  <!-- Stage 0: Neuron State (tan) -->
+  <rect x="52" y="280" width="220" height="160" rx="16" fill="#F1EFE8" stroke="#898781" stroke-width="2"/>
+  <text x="162" y="346" font-size="14" font-weight="700" fill="#5F5E5A" text-anchor="middle">Neuron State</text>
+  <text x="162" y="366" font-size="11.5" fill="#898781" text-anchor="middle">rr_sel · neuron_v[16]</text>
+  <text x="162" y="384" font-size="11.5" fill="#898781" text-anchor="middle">pending_current[16]</text>
+  <text x="162" y="402" font-size="11.5" fill="#898781" text-anchor="middle">pending_valid[16]</text>
+
+  <!-- Stage 1: Issue + Leak (peach) -->
+  <rect x="316" y="280" width="220" height="160" rx="16" fill="#FAECE7" stroke="#993C1D" stroke-width="2"/>
+  <text x="426" y="346" font-size="14" font-weight="700" fill="#993C1D" text-anchor="middle">Issue + Leak</text>
+  <text x="426" y="368" font-size="11.5" fill="#BB9385" text-anchor="middle">v − (v >>> leak_shift)</text>
+  <text x="426" y="386" font-size="11.5" fill="#BB9385" text-anchor="middle">reads neuron_v[rr_sel]</text>
+  <text x="426" y="404" font-size="11.5" fill="#BB9385" text-anchor="middle">sign-preserving shift</text>
+
+  <!-- Stage 2: Inject + Consume (peach, highlighted) -->
+  <rect x="580" y="258" width="260" height="204" rx="16" fill="#FAECE7" stroke="#993C1D" stroke-width="2.5"/>
+  <text x="710" y="316" font-size="14" font-weight="700" fill="#993C1D" text-anchor="middle">Inject + Consume</text>
+  <text x="710" y="338" font-size="11.5" fill="#BB9385" text-anchor="middle">sat16_sum(v, pending_current)</text>
+  <rect x="600" y="350" width="220" height="30" rx="8" fill="#F1EFE8" stroke="#993C1D" stroke-width="1.4"/>
+  <text x="710" y="370" font-size="11" font-weight="600" fill="#993C1D" text-anchor="middle">saturating · clamps ±32767</text>
+  <rect x="600" y="390" width="220" height="30" rx="8" fill="#F1EFE8" stroke="#993C1D" stroke-width="1.4"/>
+  <text x="710" y="410" font-size="11" font-weight="600" fill="#993C1D" text-anchor="middle">race-safe same-cycle latch</text>
+  <text x="710" y="436" font-size="11" fill="#BB9385" text-anchor="middle">clears pending_valid</text>
+
+  <!-- Stage 3: Passthrough (tan/dashed) -->
+  <rect x="888" y="280" width="200" height="160" rx="16" fill="#F1EFE8" stroke="#898781" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="988" y="346" font-size="13.5" font-weight="600" fill="#5F5E5A" text-anchor="middle">Passthrough</text>
+  <text x="988" y="368" font-size="11.5" fill="#898781" text-anchor="middle">i = 2 .. STAGES-2</text>
+  <text x="988" y="386" font-size="11.5" fill="#898781" text-anchor="middle">pure latency budget</text>
+  <text x="988" y="404" font-size="11" fill="#B0AEA8" text-anchor="middle">STAGES = max(P, 3)</text>
+
+  <!-- Stage 4: Compare + Commit (purple) -->
+  <rect x="1136" y="280" width="260" height="160" rx="16" fill="#EEEDFE" stroke="#534AB7" stroke-width="2"/>
+  <text x="1266" y="342" font-size="14" font-weight="700" fill="#3C3489" text-anchor="middle">Compare + Commit</text>
+  <text x="1266" y="364" font-size="11.5" fill="#7B6FC4" text-anchor="middle">v' ≥ threshold_in ?</text>
+  <text x="1266" y="382" font-size="11.5" fill="#7B6FC4" text-anchor="middle">  spike: neuron_v ← reset_val</text>
+  <text x="1266" y="400" font-size="11.5" fill="#7B6FC4" text-anchor="middle">  else:  neuron_v ← v'</text>
+  <text x="1266" y="422" font-size="11.5" fill="#7B6FC4" text-anchor="middle">write-back closes loop</text>
+
+  <!-- Outputs (green) -->
+  <rect x="1452" y="280" width="272" height="160" rx="16" fill="#E1F5EE" stroke="#0F6E56" stroke-width="2"/>
+  <text x="1588" y="340" font-size="14" font-weight="700" fill="#085041" text-anchor="middle">Outputs</text>
+  <text x="1588" y="362" font-size="12" font-weight="600" fill="#0F6E56" text-anchor="middle">spike_bus[15:0]</text>
+  <text x="1588" y="382" font-size="12" font-weight="600" fill="#0F6E56" text-anchor="middle">voltage_flat[255:0]</text>
+  <text x="1588" y="406" font-size="11" fill="#3F9E7C" text-anchor="middle">+ legacy neuron-0 aliases</text>
+  <text x="1588" y="422" font-size="11" fill="#3F9E7C" text-anchor="middle">spike_out / voltage_out</text>
+
+  <!-- Main pipeline arrows -->
+  <line x1="272" y1="360" x2="316" y2="360" stroke="#898781" stroke-width="2.2" marker-end="url(#mGrey)"/>
+  <line x1="536" y1="360" x2="580" y2="360" stroke="#898781" stroke-width="2.2" marker-end="url(#mGrey)"/>
+  <line x1="840" y1="360" x2="888" y2="360" stroke="#898781" stroke-width="2.2" marker-end="url(#mGrey)"/>
+  <line x1="1088" y1="360" x2="1136" y2="360" stroke="#898781" stroke-width="2.2" marker-end="url(#mGrey)"/>
+  <line x1="1396" y1="360" x2="1452" y2="360" stroke="#0F6E56" stroke-width="2.2" marker-end="url(#mGreen)"/>
+
+  <!-- Write-back loop (purple, goes under) -->
+  <path d="M1266,440 L1266,530 L162,530 L162,440" stroke="#534AB7" stroke-width="2.2" fill="none" marker-end="url(#mPurple)"/>
+  <text x="714" y="556" font-size="12" fill="#534AB7" text-anchor="middle">write-back into neuron_v[ ] — closes the per-neuron state loop</text>
+
+  <!-- Scheduling note (tan) -->
+  <rect x="52" y="590" width="1656" height="130" rx="18" fill="#F1EFE8" stroke="#898781" stroke-width="1.8"/>
+  <text x="880" y="624" font-size="13.5" font-weight="700" fill="#5F5E5A" text-anchor="middle">Scheduling property, not a defect</text>
+  <text x="880" y="648" font-size="12" fill="#898781" text-anchor="middle">One pending_current / pending_valid slot per neuron — an injection arriving faster than the round-robin</text>
+  <text x="880" y="668" font-size="12" fill="#898781" text-anchor="middle">service interval (Neurons cycles) still overwrites rather than accumulates. Verified in Tests 5, 7, 10, 12.</text>
+  <text x="880" y="692" font-size="11" fill="#B0AEA8" text-anchor="middle">This diagram covers pipelined_lif.v in isolation; the full chain it sits in is in the top-level architecture diagram.</text>
+
+</svg>
