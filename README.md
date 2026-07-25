@@ -105,8 +105,6 @@ A 2 ms simulation timeout guards against hangs, and `$dumpvars` writes a VCD for
 
 ---
 
----
-
 ## License
 
 MIT License — see `LICENSE`.
