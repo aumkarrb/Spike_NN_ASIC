@@ -1,0 +1,157 @@
+<svg viewBox="0 0 1400 1120" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+
+  <defs>
+    <marker id="mGrey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,1.5 L8,5 L0,8.5 z" fill="#898781"/>
+    </marker>
+    <marker id="mGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,1.5 L8,5 L0,8.5 z" fill="#0F6E56"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="700" y="44" font-size="22" font-weight="700" fill="#3A3835" text-anchor="middle">Spike_NN_ASIC — Top-Level Architecture</text>
+  <text x="700" y="68" font-size="13" fill="#898781" text-anchor="middle">event → weight lookup → synapse MAC → 16-neuron LIF array → spike log + AER output</text>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       OUTER CONTAINER  (tan / cream — the whole board boundary)
+       ═══════════════════════════════════════════════════════════ -->
+  <rect x="30" y="90" width="1340" height="1000" rx="24" fill="#F1EFE8" stroke="#898781" stroke-width="2"/>
+  <text x="700" y="130" font-size="17" font-weight="700" fill="#5F5E5A" text-anchor="middle">Spike-NN Core</text>
+
+  <!-- ═══════════════════════════════════════════════
+       wr_clk   (GREEN panel, left)
+       ═══════════════════════════════════════════════ -->
+  <rect x="54" y="152" width="270" height="470" rx="18" fill="#E1F5EE" stroke="#0F6E56" stroke-width="2"/>
+  <text x="189" y="186" font-size="15" font-weight="700" fill="#085041" text-anchor="middle">wr_clk</text>
+  <text x="189" y="204" font-size="11.5" fill="#0F6E56" text-anchor="middle">host / event-source side</text>
+
+  <!-- Event FIFO write side -->
+  <rect x="76" y="226" width="226" height="100" rx="14" fill="#F1EFE8" stroke="#898781" stroke-width="1.8"/>
+  <text x="189" y="262" font-size="13.5" font-weight="600" fill="#5F5E5A" text-anchor="middle">event_fifo</text>
+  <text x="189" y="280" font-size="11.5" fill="#898781" text-anchor="middle">write side · Gray-ptr</text>
+  <text x="189" y="296" font-size="11.5" fill="#898781" text-anchor="middle">pow2 DEPTH required</text>
+  <text x="189" y="312" font-size="11.5" fill="#898781" text-anchor="middle">ev_valid_in / fifo_full</text>
+
+  <!-- Weight write port note -->
+  <rect x="76" y="348" width="226" height="76" rx="14" fill="#F1EFE8" stroke="#898781" stroke-width="1.8"/>
+  <text x="189" y="375" font-size="13" font-weight="600" fill="#5F5E5A" text-anchor="middle">weight write port</text>
+  <text x="189" y="393" font-size="11.5" fill="#898781" text-anchor="middle">waddr / wdata / we</text>
+  <text x="189" y="409" font-size="11" fill="#B0AEA8" text-anchor="middle">no reset init; write first</text>
+
+  <!-- pulse_sync -->
+  <rect x="76" y="446" width="226" height="76" rx="14" fill="#F1EFE8" stroke="#898781" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="189" y="474" font-size="13" font-weight="600" fill="#5F5E5A" text-anchor="middle">pulse_sync</text>
+  <text x="189" y="492" font-size="11.5" fill="#898781" text-anchor="middle">standalone CDC utility</text>
+  <text x="189" y="508" font-size="11" fill="#B0AEA8" text-anchor="middle">toggle handshake</text>
+
+  <!-- ═══════════════════════════════════════════════
+       core_clk  (PURPLE panel, center)
+       ═══════════════════════════════════════════════ -->
+  <rect x="354" y="152" width="630" height="910" rx="18" fill="#EEEDFE" stroke="#534AB7" stroke-width="2"/>
+  <text x="669" y="186" font-size="15" font-weight="700" fill="#3C3489" text-anchor="middle">core_clk — main datapath</text>
+
+  <!-- event_fifo read side -->
+  <rect x="376" y="210" width="586" height="88" rx="14" fill="#FAECE7" stroke="#993C1D" stroke-width="2"/>
+  <text x="669" y="248" font-size="14" font-weight="700" fill="#993C1D" text-anchor="middle">event_fifo  (read side)</text>
+  <text x="669" y="266" font-size="11.5" fill="#BB9385" text-anchor="middle">1 event/cycle · fifo_data_out → {weight_addr, magnitude}</text>
+  <text x="669" y="282" font-size="11.5" fill="#BB9385" text-anchor="middle">ready_in tied 1'b1</text>
+
+  <!-- weight_ram_par -->
+  <rect x="376" y="318" width="586" height="88" rx="14" fill="#FAECE7" stroke="#993C1D" stroke-width="2"/>
+  <text x="669" y="356" font-size="14" font-weight="700" fill="#993C1D" text-anchor="middle">weight_ram_par</text>
+  <text x="669" y="374" font-size="11.5" fill="#BB9385" text-anchor="middle">4 parallel read lanes · lane 0 live synapse · lanes 1–3 debug</text>
+  <text x="669" y="390" font-size="11.5" fill="#BB9385" text-anchor="middle">write port sampled directly on core_clk</text>
+
+  <!-- re-align stage (small, centered) -->
+  <rect x="472" y="426" width="394" height="60" rx="12" fill="#FAECE7" stroke="#993C1D" stroke-width="2"/>
+  <text x="669" y="453" font-size="13" font-weight="700" fill="#993C1D" text-anchor="middle">re-align stage · 1 cycle</text>
+  <text x="669" y="471" font-size="11" fill="#BB9385" text-anchor="middle">re-syncs magnitude with weight RAM's registered read</text>
+
+  <!-- synapse_pipeline -->
+  <rect x="376" y="506" width="586" height="88" rx="14" fill="#FAECE7" stroke="#993C1D" stroke-width="2"/>
+  <text x="669" y="544" font-size="14" font-weight="700" fill="#993C1D" text-anchor="middle">synapse_pipeline</text>
+  <text x="669" y="562" font-size="11.5" fill="#BB9385" text-anchor="middle">magnitude × weight  ·  MAC, DELAY=8 deep, accum_pending flag</text>
+  <text x="669" y="578" font-size="11.5" fill="#BB9385" text-anchor="middle">current_out / current_valid</text>
+
+  <!-- debug mux (small) -->
+  <rect x="472" y="614" width="394" height="56" rx="12" fill="#FAECE7" stroke="#993C1D" stroke-width="2"/>
+  <text x="669" y="640" font-size="13" font-weight="700" fill="#993C1D" text-anchor="middle">debug current-injection mux</text>
+  <text x="669" y="656" font-size="11" fill="#BB9385" text-anchor="middle">dbg_current_valid bypasses FIFO + synapse</text>
+
+  <!-- pipelined_lif -->
+  <rect x="376" y="690" width="586" height="108" rx="14" fill="#FAECE7" stroke="#993C1D" stroke-width="2.5"/>
+  <text x="669" y="730" font-size="15" font-weight="700" fill="#993C1D" text-anchor="middle">pipelined_lif</text>
+  <text x="669" y="750" font-size="11.5" fill="#BB9385" text-anchor="middle">16 neurons · round-robin rr_sel · saturating add (sat16_sum)</text>
+  <text x="669" y="768" font-size="11.5" fill="#BB9385" text-anchor="middle">threshold_in / reset_val_in / leak_shift_in  — live ports</text>
+  <text x="669" y="786" font-size="11.5" fill="#BB9385" text-anchor="middle">spike_bus[15:0]  ·  voltage_flat[255:0]</text>
+
+  <!-- bottom row: spike_logger | aer_tx -->
+  <rect x="376" y="820" width="280" height="88" rx="14" fill="#E1F5EE" stroke="#0F6E56" stroke-width="2"/>
+  <text x="516" y="856" font-size="13.5" font-weight="700" fill="#085041" text-anchor="middle">spike_logger</text>
+  <text x="516" y="874" font-size="11.5" fill="#0F6E56" text-anchor="middle">any-neuron spike count</text>
+  <text x="516" y="890" font-size="11" fill="#3F9E7C" text-anchor="middle">non-sticky overflow pulse</text>
+
+  <rect x="682" y="820" width="280" height="88" rx="14" fill="#FAECE7" stroke="#993C1D" stroke-width="2"/>
+  <text x="822" y="856" font-size="13.5" font-weight="700" fill="#993C1D" text-anchor="middle">aer_tx</text>
+  <text x="822" y="874" font-size="11.5" fill="#BB9385" text-anchor="middle">round-robin arbiter</text>
+  <text x="822" y="890" font-size="11.5" fill="#BB9385" text-anchor="middle">4-phase req/ack FSM</text>
+
+  <!-- ═══════════════════════════════════════════════
+       aer_clk  (GREEN panel, right)
+       ═══════════════════════════════════════════════ -->
+  <rect x="1014" y="152" width="326" height="560" rx="18" fill="#E1F5EE" stroke="#0F6E56" stroke-width="2"/>
+  <text x="1177" y="186" font-size="15" font-weight="700" fill="#085041" text-anchor="middle">aer_clk</text>
+  <text x="1177" y="204" font-size="11.5" fill="#0F6E56" text-anchor="middle">independent receiver clock</text>
+
+  <!-- aer_rx -->
+  <rect x="1036" y="226" width="282" height="112" rx="14" fill="#FAECE7" stroke="#993C1D" stroke-width="2"/>
+  <text x="1177" y="264" font-size="13.5" font-weight="700" fill="#993C1D" text-anchor="middle">aer_rx</text>
+  <text x="1177" y="282" font-size="11.5" fill="#BB9385" text-anchor="middle">3-flop req synchronizer</text>
+  <text x="1177" y="298" font-size="11.5" fill="#BB9385" text-anchor="middle">edge-detect FSM</text>
+  <text x="1177" y="316" font-size="11" fill="#BB9385" text-anchor="middle">addr_out / event_valid</text>
+
+  <!-- aer_spike_logger -->
+  <rect x="1036" y="358" width="282" height="120" rx="14" fill="#E1F5EE" stroke="#0F6E56" stroke-width="2"/>
+  <text x="1177" y="394" font-size="13.5" font-weight="700" fill="#085041" text-anchor="middle">aer_spike_logger</text>
+  <text x="1177" y="412" font-size="11.5" fill="#0F6E56" text-anchor="middle">circular (addr, timestamp) log</text>
+  <text x="1177" y="430" font-size="11.5" fill="#0F6E56" text-anchor="middle">read_addr → read_out_addr</text>
+  <text x="1177" y="448" font-size="11.5" fill="#0F6E56" text-anchor="middle">               / read_out_time</text>
+  <text x="1177" y="466" font-size="11" fill="#3F9E7C" text-anchor="middle">non-sticky overflow</text>
+
+  <!-- cross-check note -->
+  <rect x="1036" y="498" width="282" height="88" rx="14" fill="#F1EFE8" stroke="#898781" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <text x="1177" y="530" font-size="12.5" font-weight="600" fill="#5F5E5A" text-anchor="middle">cross-check</text>
+  <text x="1177" y="550" font-size="11" fill="#898781" text-anchor="middle">aer_log_count ==</text>
+  <text x="1177" y="567" font-size="11" fill="#898781" text-anchor="middle">spike_bus monitor</text>
+  <text x="1177" y="576" font-size="0" fill="none">spacer</text>
+
+  <!-- ═══════════════════════════════════════
+       ARROWS
+       ═══════════════════════════════════════ -->
+
+  <!-- wr_clk fifo → core_clk fifo (CDC crossing, green arrow) -->
+  <path d="M324,276 L376,276" stroke="#0F6E56" stroke-width="2.2" fill="none" marker-end="url(#mGreen)"/>
+
+  <!-- core_clk vertical chain arrows -->
+  <line x1="669" y1="298" x2="669" y2="318" stroke="#898781" stroke-width="2" marker-end="url(#mGrey)"/>
+  <line x1="669" y1="406" x2="669" y2="426" stroke="#898781" stroke-width="2" marker-end="url(#mGrey)"/>
+  <line x1="669" y1="486" x2="669" y2="506" stroke="#898781" stroke-width="2" marker-end="url(#mGrey)"/>
+  <line x1="669" y1="594" x2="669" y2="614" stroke="#898781" stroke-width="2" marker-end="url(#mGrey)"/>
+  <line x1="669" y1="670" x2="669" y2="690" stroke="#898781" stroke-width="2" marker-end="url(#mGrey)"/>
+
+  <!-- pipelined_lif → spike_logger + aer_tx -->
+  <path d="M560,798 L560,820" stroke="#898781" stroke-width="2" fill="none" marker-end="url(#mGrey)"/>
+  <path d="M800,798 L800,820" stroke="#898781" stroke-width="2" fill="none" marker-end="url(#mGrey)"/>
+
+  <!-- aer_tx → aer_rx (CDC, goes right then up into aer_clk panel) -->
+  <path d="M962,864 L988,864 L988,282 L1036,282" stroke="#534AB7" stroke-width="2.2" fill="none" marker-end="url(#mGrey)"/>
+  <text x="996" y="578" font-size="10.5" fill="#534AB7" text-anchor="middle" transform="rotate(-90,996,578)">4-phase req/ack · CDC</text>
+
+  <!-- aer_rx → aer_spike_logger -->
+  <line x1="1177" y1="338" x2="1177" y2="358" stroke="#898781" stroke-width="2" marker-end="url(#mGrey)"/>
+
+  <!-- wr_clk → core_clk CDC label -->
+  <text x="350" y="268" font-size="10" fill="#0F6E56" text-anchor="middle">CDC</text>
+
+</svg>

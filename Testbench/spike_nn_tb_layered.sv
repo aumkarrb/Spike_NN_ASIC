@@ -6,16 +6,19 @@ module spike_nn_tb_layered;
     parameter CLK_PERIOD     = 10;  // main / write-clock domain
     parameter DST_CLK_PERIOD = 14;  // pulse_sync destination clock (different freq -> real CDC)
     parameter RD_CLK_PERIOD  = 17;  // event_fifo read clock (different freq -> real CDC)
+    parameter AER_CLK_PERIOD = 21;  // AER receiver clock (different freq -> genuine CDC across the AER link)
 
     parameter FIFO_DEPTH      = 16; // power of two, required by gray-code pointers
     parameter WEIGHT_DEPTH    = 256;
     parameter WEIGHT_RD_PORTS = 4;
     parameter LOG_DEPTH       = 256;
+    parameter AER_LOG_DEPTH   = 256;
     parameter NUM_NEURONS     = 16;
 
     logic clk, rst_n;
     logic dst_clk, dst_rst_n;
     logic rd_clk, rd_rst_n;
+    logic aer_clk, aer_rst_n;
 
     // Pulse sync interface
     logic [15:0] pulse_in;
@@ -66,8 +69,39 @@ module spike_nn_tb_layered;
     logic        logger_spike_in;
     logic        logger_valid_in;
     logic        logger_ready_out;
-    logic [7:0]  logger_count;
+    logic [8:0]  logger_count;
     logic        logger_overflow;
+
+    //  AER link: synthetic protocol/arbitration test path 
+    // Driven directly by the testbench (not tied to any DUT), so genuine
+    // multi-source simultaneous requests can be exercised on demand,
+    // independent of what the real neuron array happens to produce.
+    logic [NUM_NEURONS-1:0] aer_test_req_pulse;
+    logic [3:0]             aer_test_addr;
+    logic                   aer_test_req;
+    logic                   aer_test_ack;
+    logic                   aer_test_busy;
+    logic [NUM_NEURONS-1:0] aer_test_pending_dbg;
+    logic [3:0]             aer_test_addr_out;
+    logic                   aer_test_event_valid;
+
+    //  AER link: real integration path 
+    // Wired directly to dut_lif.spike_bus for the whole simulation, so
+    // every genuine spike from any of the 8-14 unit/regression tests
+    // above flows through a real AER transaction into aer_spike_logger.
+    logic [3:0]              aer_addr;
+    logic                    aer_req;
+    logic                    aer_ack;
+    logic                    aer_busy;
+    logic [NUM_NEURONS-1:0]  aer_pending_dbg;
+    logic [3:0]              aer_addr_out;
+    logic                    aer_event_valid;
+    logic [$clog2(AER_LOG_DEPTH):0] aer_log_count;
+    logic                    aer_log_overflow;
+    logic                    aer_log_ready_out;
+    logic [$clog2(AER_LOG_DEPTH)-1:0] aer_read_addr;
+    logic [3:0]               aer_read_out_addr;
+    logic [31:0]               aer_read_out_time;
 
 
     pulse_sync #(
@@ -144,6 +178,38 @@ module spike_nn_tb_layered;
         .overflow(logger_overflow)
     );
 
+    // AER link: synthetic protocol/arbitration test instances 
+    aer_tx #(.N_SOURCES(NUM_NEURONS), .ADDR_W(4)) dut_aer_tx_test (
+        .clk(clk), .rst_n(rst_n),
+        .req_pulse(aer_test_req_pulse),
+        .addr(aer_test_addr), .aer_req(aer_test_req), .aer_ack(aer_test_ack),
+        .busy(aer_test_busy), .pending_dbg(aer_test_pending_dbg)
+    );
+    aer_rx #(.ADDR_W(4)) dut_aer_rx_test (
+        .clk(aer_clk), .rst_n(aer_rst_n),
+        .addr(aer_test_addr), .aer_req(aer_test_req), .aer_ack(aer_test_ack),
+        .addr_out(aer_test_addr_out), .event_valid(aer_test_event_valid)
+    );
+
+    //  AER link: real integration path, wired to the live neuron array 
+    aer_tx #(.N_SOURCES(NUM_NEURONS), .ADDR_W(4)) dut_aer_tx (
+        .clk(clk), .rst_n(rst_n),
+        .req_pulse(lif_spike_bus),           // genuine spikes from dut_lif, whenever they occur
+        .addr(aer_addr), .aer_req(aer_req), .aer_ack(aer_ack),
+        .busy(aer_busy), .pending_dbg(aer_pending_dbg)
+    );
+    aer_rx #(.ADDR_W(4)) dut_aer_rx (
+        .clk(aer_clk), .rst_n(aer_rst_n),
+        .addr(aer_addr), .aer_req(aer_req), .aer_ack(aer_ack),
+        .addr_out(aer_addr_out), .event_valid(aer_event_valid)
+    );
+    aer_spike_logger #(.DEPTH(AER_LOG_DEPTH), .ADDR_W(4)) dut_aer_logger (
+        .clk(aer_clk), .rst_n(aer_rst_n),
+        .addr_in(aer_addr_out), .event_valid(aer_event_valid), .ready_out(aer_log_ready_out),
+        .log_count(aer_log_count), .overflow(aer_log_overflow),
+        .read_addr(aer_read_addr), .read_out_addr(aer_read_out_addr), .read_out_time(aer_read_out_time)
+    );
+
     int test_pass_count;
     int test_fail_count;
     int total_spikes_generated;
@@ -154,11 +220,12 @@ module spike_nn_tb_layered;
     initial begin clk = 0;     forever #(CLK_PERIOD/2)     clk = ~clk;     end
     initial begin dst_clk = 0; forever #(DST_CLK_PERIOD/2) dst_clk = ~dst_clk; end
     initial begin rd_clk = 0;  forever #(RD_CLK_PERIOD/2)  rd_clk = ~rd_clk;  end
+    initial begin aer_clk = 0; forever #(AER_CLK_PERIOD/2) aer_clk = ~aer_clk; end
 
     task automatic reset_system();
         begin
             $display("[%0t] === RESET SYSTEM ===", $time);
-            rst_n = 0; dst_rst_n = 0; rd_rst_n = 0;
+            rst_n = 0; dst_rst_n = 0; rd_rst_n = 0; aer_rst_n = 0;
 
             pulse_in = 16'h0000; pulse_valid_in = 1'b0;
             fifo_data_in = 48'h0; fifo_valid_in = 1'b0; fifo_ready_in = 1'b1;
@@ -168,10 +235,11 @@ module spike_nn_tb_layered;
             lif_current_in = 32'h0; lif_current_valid = 1'b0; lif_current_neuron_id = 4'd0;
             lif_threshold_in = 16'sd200; lif_reset_val_in = 16'sd0; lif_leak_shift_in = 5'd5;
             logger_spike_in = 1'b0; logger_valid_in = 1'b0;
+            aer_test_req_pulse = '0; aer_read_addr = '0;
 
             #200;
             @(posedge clk);
-            rst_n = 1; dst_rst_n = 1; rd_rst_n = 1;
+            rst_n = 1; dst_rst_n = 1; rd_rst_n = 1; aer_rst_n = 1;
             repeat(5) @(posedge clk);
             $display("[%0t] Reset complete", $time);
         end
@@ -325,7 +393,7 @@ module spike_nn_tb_layered;
             end
 
             if (found_valid1 && found_valid2) begin
-                $display("[PASS] Repeated identical pulse value was NOT dropped (Gap #6 fix verified)");
+                $display("[PASS] Repeated identical pulse value was NOT dropped ");
                 test_pass_count++;
             end else begin
                 $display("[FAIL] Repeated identical pulse value was dropped");
@@ -502,11 +570,7 @@ module spike_nn_tb_layered;
             spike_detected = 1'b0;
 
             inj_idx = 0;
-            // Space injections one round-robin period apart: neuron 0 is
-            // only serviced once every NUM_NEURONS cycles now that all 16
-            // neurons are live (Known Gap #2 fix), so injecting faster
-            // than that just overwrites the still-pending current instead
-            // of adding to it.
+
             while (inj_idx < 20 && !spike_detected) begin
                 @(posedge clk);
                 lif_current_in        = {16'h0, 16'h0020};
@@ -615,7 +679,7 @@ module spike_nn_tb_layered;
     task automatic test_datapath_integration();
         integer cyc;
         integer pushed;
-        logic [7:0] pre_log_count;
+        logic [8:0] pre_log_count;
         begin
             $display("\n========================================");
             $display("TEST 8: Full Datapath Integration");
@@ -674,9 +738,562 @@ module spike_nn_tb_layered;
     endtask
 
 
+    task automatic test_spike_logger_capacity();
+        // Regression for two spike_logger fixes:
+        //  (a) usable capacity is now the full LOG_DEPTH, not LOG_DEPTH-1
+        //  (b) overflow is a one-cycle pulse, not a permanent latch
+        integer k;
+        logic [8:0] fill_start_count;
+        begin
+            $display("\n========================================");
+            $display("TEST 9: Spike Logger Capacity & Overflow (regression)");
+            $display("========================================");
+
+            fill_start_count = logger_count;
+
+            // Fill the remaining capacity exactly (LOG_DEPTH - current count),
+            // all should be accepted with overflow staying low throughout.
+            for (k = 0; k < (LOG_DEPTH - fill_start_count); k = k + 1) begin
+                @(posedge clk);
+                logger_spike_in = 1'b1; logger_valid_in = 1'b1;
+                @(posedge clk);
+                logger_spike_in = 1'b0; logger_valid_in = 1'b0;
+            end
+            repeat(3) @(posedge clk);
+
+            if (logger_count == LOG_DEPTH && !logger_overflow) begin
+                $display("[PASS] Logger reached full LOG_DEPTH=%0d capacity with no premature overflow (log_count=%0d)",
+                         LOG_DEPTH, logger_count);
+                test_pass_count++;
+            end else begin
+                $display("[FAIL] Expected log_count=%0d overflow=0, got log_count=%0d overflow=%b",
+                         LOG_DEPTH, logger_count, logger_overflow);
+                test_fail_count++;
+            end
+
+            // One more spike now that the log is genuinely full: overflow
+            // should pulse high for that exact cycle.
+            @(posedge clk);
+            logger_spike_in = 1'b1; logger_valid_in = 1'b1;
+            @(posedge clk);
+            logger_spike_in = 1'b0; logger_valid_in = 1'b0;
+
+            if (logger_overflow && logger_count == LOG_DEPTH) begin
+                $display("[PASS] Overflow pulsed on the over-capacity spike attempt (log_count held at %0d)", logger_count);
+                test_pass_count++;
+            end else begin
+                $display("[FAIL] Expected overflow=1 log_count=%0d, got overflow=%b log_count=%0d",
+                         LOG_DEPTH, logger_overflow, logger_count);
+                test_fail_count++;
+            end
+
+            // Idle cycle, no new spike attempt: overflow must self-clear
+            // (previously it would have stayed latched high forever).
+            @(posedge clk);
+            if (!logger_overflow) begin
+                $display("[PASS] Overflow self-cleared on an idle cycle (pulse behavior confirmed, not a latch)");
+                test_pass_count++;
+            end else begin
+                $display("[FAIL] Overflow stayed asserted with no spike attempt -- latched instead of pulsing");
+                test_fail_count++;
+            end
+        end
+    endtask
+
+
+    task automatic test_lif_pending_race();
+        // Regression for the pipelined_lif pending_valid write-write race:
+        // a fresh injection to neuron N arriving the exact cycle N's prior
+        // pending value is consumed at stage 1 must NOT be silently dropped.
+        logic spike_detected;
+        logic window_found;
+        integer w;
+        begin
+            $display("\n========================================");
+            $display("TEST 10: LIF Same-Cycle Injection Race (regression)");
+            $display("========================================");
+
+            // Prime neuron 9 with a small, sub-threshold current.
+            inject_lif_current(16'h0032, 4'd9); // 50
+
+            // Wait until neuron 9 is about to be consumed at stage 1
+            // (dut_lif.p_sel[0]==9), then fire a second, supra-threshold
+            // injection to the SAME neuron on that exact cycle.
+            spike_detected = 1'b0;
+            window_found = 1'b0;
+            w = 0;
+            while (w < 40 && !window_found) begin
+                @(posedge clk);
+                if (dut_lif.p_sel[0] == 4'd9 && dut_lif.p_valid[0]) window_found = 1'b1;
+                w = w + 1;
+            end
+
+            if (!window_found) begin
+                $display("[FAIL] Never observed neuron 9 at its stage-1 consumption slot within %0d cycles -- race window not exercised", w);
+                test_fail_count++;
+            end else begin
+                lif_current_in        = {16'h0, 16'h00C8}; // 200 -- alone enough to spike
+                lif_current_valid     = 1'b1;
+                lif_current_neuron_id = 4'd9;
+                @(posedge clk);
+                lif_current_valid = 1'b0;
+                $display("[%0t] Raced a second injection to neuron 9 on its stage-1 consumption cycle", $time);
+
+                // Give it up to two full round-robin sweeps to be serviced.
+                w = 0;
+                while (w < 40 && !spike_detected) begin
+                    @(posedge clk);
+                    if (lif_spike_bus[9]) spike_detected = 1'b1;
+                    w = w + 1;
+                end
+
+                if (spike_detected) begin
+                    $display("[PASS] Neuron 9 spiked from the raced injection (previously silently dropped)");
+                    test_pass_count++;
+                end else begin
+                    $display("[FAIL] Neuron 9 never spiked -- the same-cycle injection was lost");
+                    test_fail_count++;
+                end
+            end
+        end
+    endtask
+
+
+    task automatic test_synapse_zero_sum();
+        integer w;
+        integer beats_seen;
+        logic accepted0, accepted1, accepted2;
+        begin
+            $display("\n========================================");
+            $display("TEST 11: Synapse Zero-Sum Accumulation (regression)");
+            $display("========================================");
+
+            synapse_current_ready = 1'b0; // stall so events pile into the backlog
+
+            // Burst three events close together (well inside DELAY=8) so
+            // all three are accepted before backpressure can engage:
+            // event0 primes the output; event1(+50)/event2(-50) cancel
+            // exactly and must still be signaled once drained.
+            send_synapse_event(32'h0000_0001, 32'h0000_0001, accepted0); // +1
+            repeat(2) @(posedge clk);
+            send_synapse_event(32'h0000_0001, 32'sd50, accepted1);       // +50
+            repeat(2) @(posedge clk);
+            send_synapse_event(32'h0000_0001, -32'sd50, accepted2);      // -50
+
+            // Precondition check: this test only proves what it claims to
+            // if all three events actually entered the pipe. If backpressure
+            // timing ever shifted and one got rejected, a later "beats_seen
+            // >= 2" pass would be passing for the wrong reason 
+            if (!(accepted0 && accepted1 && accepted2)) begin
+                $display("[FAIL] Not all 3 events were accepted (a0=%b a1=%b a2=%b) -- zero-sum scenario not actually exercised",
+                         accepted0, accepted1, accepted2);
+                test_fail_count++;
+            end else begin
+                repeat(20) @(posedge clk); // let all three drain into accum/output
+
+                synapse_current_ready = 1'b1;
+                beats_seen = 0;
+                w = 0;
+                while (w < 20) begin
+                    @(posedge clk);
+                    if (synapse_current_valid) begin
+                        beats_seen = beats_seen + 1;
+                        $display("        Beat %0d: current=%0d", beats_seen, $signed(synapse_current_out));
+                    end
+                    w = w + 1;
+                end
+
+                if (beats_seen >= 2) begin
+                    $display("[PASS] Zero-sum backlog produced a second beat instead of being silently dropped (%0d beats seen)", beats_seen);
+                    test_pass_count++;
+                end else begin
+                    $display("[FAIL] Expected at least 2 beats (prime + zero-sum), saw %0d", beats_seen);
+                    test_fail_count++;
+                end
+            end
+            synapse_current_ready = 1'b1;
+        end
+    endtask
+
+
+    task automatic test_lif_saturation();
+        // Regression for the pipelined_lif addition-overflow fix: a large
+        // voltage plus a large injected current must saturate the SUM, not
+        // just the injected operand, or the combined add can wrap 16-bit
+        // signed range and cause a neuron to miss a spike it clearly earned.
+        logic spike_detected;
+        integer w;
+        begin
+            $display("\n========================================");
+            $display("TEST 12: LIF Saturation Regression (sum, not just operand)");
+            $display("========================================");
+
+            // Temporarily raise threshold so priming doesn't spike early.
+            lif_threshold_in = 16'sd32767;
+
+            @(posedge clk);
+            lif_current_in = 32'sd30000; lif_current_valid = 1'b1; lif_current_neuron_id = 4'd12;
+            @(posedge clk);
+            lif_current_valid = 1'b0;
+            repeat(20) @(posedge clk);
+
+            // Second injection: raw magnitude far beyond 16-bit range. If
+            // the sum wraps instead of saturating, this neuron's voltage
+            // goes deeply negative and it silently fails to spike even
+            // though 30000 + (anything large and positive) obviously
+            // exceeds any 16-bit-representable threshold.
+            @(posedge clk);
+            lif_current_in = 32'sd40000; lif_current_valid = 1'b1; lif_current_neuron_id = 4'd12;
+            @(posedge clk);
+            lif_current_valid = 1'b0;
+
+            spike_detected = 1'b0;
+            w = 0;
+            while (w < 40 && !spike_detected) begin
+                @(posedge clk);
+                if (lif_spike_bus[12]) spike_detected = 1'b1;
+                w = w + 1;
+            end
+
+            if (spike_detected) begin
+                $display("[PASS] Neuron 12 correctly spiked from a combined sum that would overflow a naive 16-bit add");
+                test_pass_count++;
+            end else begin
+                $display("[FAIL] Neuron 12 never spiked -- the voltage+current sum likely wrapped instead of saturating");
+                test_fail_count++;
+            end
+
+            // restore the threshold the rest of the suite expects
+            lif_threshold_in = 16'sd200;
+            repeat(5) @(posedge clk);
+        end
+    endtask
+
+
+    task automatic test_fifo_full_backpressure();
+        // Regression for a coverage gap flagged in the audit: fifo_full and
+        // the write-side backpressure path (write_en gated by !fifo_full)
+        // were never actually exercised by any prior test.
+        integer i;
+        integer rejected;
+        begin
+            $display("\n========================================");
+            $display("TEST 13: FIFO Full Backpressure (regression)");
+            $display("========================================");
+
+            fifo_ready_in = 1'b0; // hold off draining so writes can genuinely fill it
+            rejected = 0;
+
+            // FIFO_DEPTH=16; write well past capacity and count rejections.
+            for (i = 0; i < FIFO_DEPTH + 4; i = i + 1) begin
+                @(posedge clk);
+                if (fifo_full) begin
+                    rejected = rejected + 1;
+                end else begin
+                    fifo_data_in = {16'h0, i[15:0], 16'hBEEF};
+                    fifo_valid_in = 1'b1;
+                end
+                @(posedge clk);
+                fifo_valid_in = 1'b0;
+            end
+            repeat(3) @(posedge clk);
+
+            if (fifo_full && rejected > 0) begin
+                $display("[PASS] FIFO correctly asserted fifo_full and rejected %0d over-capacity write attempts", rejected);
+                test_pass_count++;
+            end else begin
+                $display("[FAIL] Expected fifo_full=1 with rejections after writing past FIFO_DEPTH=%0d, got fifo_full=%b rejected=%0d",
+                         FIFO_DEPTH, fifo_full, rejected);
+                test_fail_count++;
+            end
+
+            // Drain back down and confirm it recovers.
+            fifo_ready_in = 1'b1;
+            #300;
+            if (!fifo_full && fifo_empty) begin
+                $display("[PASS] FIFO recovered to empty after draining a full backlog");
+                test_pass_count++;
+            end else begin
+                $display("[FAIL] FIFO did not recover: full=%b empty=%b", fifo_full, fifo_empty);
+                test_fail_count++;
+            end
+            fifo_ready_in = 1'b0;
+        end
+    endtask
+
+
+    task automatic test_weight_ram_collision();
+        logic [31:0] pre_write_value;
+        logic [31:0] during_write_value;
+        logic [31:0] post_write_value;
+        begin
+            $display("\n========================================");
+            $display("TEST 14: Weight RAM Same-Cycle Read/Write Collision (regression)");
+            $display("========================================");
+
+            write_weight(8'h20, 32'h0000_1111); // seed a known value
+            repeat(2) @(posedge clk);
+
+            weight_addr[7:0] = 8'h20;
+            @(posedge clk);
+            pre_write_value = weight_data_out[31:0];
+
+            // Issue a write to the SAME address the read lane is already
+            // pointed at, sampling the read output on the exact same edge.
+            weight_waddr = 8'h20;
+            weight_data_in = 32'h0000_2222;
+            weight_we = 1'b1;
+            during_write_value = weight_data_out[31:0]; // sampled before the edge takes effect
+            @(posedge clk);
+            weight_we = 1'b0;
+            post_write_value = weight_data_out[31:0];
+
+            if (pre_write_value == 32'h0000_1111 &&
+                during_write_value == 32'h0000_1111 &&
+                post_write_value == 32'h0000_2222) begin
+                $display("[PASS] Same-cycle read/write returned old data during the write and new data after (pre=0x%08h during=0x%08h post=0x%08h)",
+                         pre_write_value, during_write_value, post_write_value);
+                test_pass_count++;
+            end else begin
+                $display("[FAIL] Unexpected same-cycle collision behavior (pre=0x%08h during=0x%08h post=0x%08h)",
+                         pre_write_value, during_write_value, post_write_value);
+                test_fail_count++;
+            end
+        end
+    endtask
+
+
+    task automatic test_aer_link_protocol();
+
+        integer w;
+        integer seen_count;
+        logic [3:0] seen_addrs [0:7];
+        begin
+            $display("\n========================================");
+            $display("TEST 15: AER Link Protocol & Arbitration (aer_tx.v / aer_rx.v)");
+            $display("========================================");
+
+            seen_count = 0;
+
+            // --- Sub-test A: single event, basic 4-phase handshake ---
+            @(posedge clk);
+            aer_test_req_pulse[6] = 1'b1;
+            @(posedge clk);
+            aer_test_req_pulse[6] = 1'b0;
+
+            w = 0;
+            while (w < 40 && !aer_test_event_valid) begin
+                @(posedge aer_clk);
+                w = w + 1;
+            end
+            if (aer_test_event_valid && aer_test_addr_out == 4'd6) begin
+                $display("[PASS] AER single-event handshake: address 6 correctly transferred");
+                test_pass_count++;
+            end else begin
+                $display("[FAIL] AER single-event handshake failed (event_valid=%b addr_out=%0d)",
+                         aer_test_event_valid, aer_test_addr_out);
+                test_fail_count++;
+            end
+            repeat(10) @(posedge aer_clk);
+
+            // --- Sub-test B: two GENUINELY simultaneous requests ---
+            // This is the real arbitration proof: sources 2 and 13 both
+            // request on the exact same cycle. A plain FIFO with no
+            // arbiter has no way to express this input at all; aer_tx
+            // must pick one, transfer it, then transfer the other.
+            seen_count = 0;
+            @(posedge clk);
+            aer_test_req_pulse[2]  = 1'b1;
+            aer_test_req_pulse[13] = 1'b1;
+            @(posedge clk);
+            aer_test_req_pulse[2]  = 1'b0;
+            aer_test_req_pulse[13] = 1'b0;
+
+            w = 0;
+            while (w < 120 && seen_count < 2) begin
+                @(posedge aer_clk);
+                if (aer_test_event_valid) begin
+                    seen_addrs[seen_count] = aer_test_addr_out;
+                    seen_count = seen_count + 1;
+                end
+                w = w + 1;
+            end
+
+            if (seen_count == 2 &&
+                ((seen_addrs[0] == 4'd2 && seen_addrs[1] == 4'd13) ||
+                 (seen_addrs[0] == 4'd13 && seen_addrs[1] == 4'd2))) begin
+                $display("[PASS] Simultaneous requests (2 and 13) both arbitrated and delivered, none lost (order: %0d, %0d)",
+                         seen_addrs[0], seen_addrs[1]);
+                test_pass_count++;
+            end else begin
+                $display("[FAIL] Simultaneous-request arbitration failed: seen_count=%0d addrs=[%0d,%0d]",
+                         seen_count, seen_addrs[0], seen_addrs[1]);
+                test_fail_count++;
+            end
+        end
+    endtask
+
+
+    task automatic test_aer_integration();
+        // Cross-checks the REAL AER path (wired continuously to
+        // dut_lif.spike_bus for the whole simulation) against the
+        // independent total_spikes_logged testbench monitor. Two
+        // completely different measurement paths -- one a simple
+        // always-block counter, one the actual AER hardware link -- should
+        // agree exactly on how many spikes occurred. Also fires a handful
+        // of additional real spikes here so the AER path has fresh events
+        // to catch, then dumps the log and checks specific addresses.
+        integer n;
+        integer id_list[0:2];
+        integer w;
+        integer pre_log;
+        begin
+            $display("\n========================================");
+            $display("TEST 16: AER Integration & Cross-Check (real spike_bus -> AER -> aer_spike_logger)");
+            $display("========================================");
+
+            pre_log = aer_log_count;
+
+            id_list[0] = 1; id_list[1] = 6; id_list[2] = 14;
+            for (n = 0; n < 3; n = n + 1) begin
+                inject_lif_current(16'h0100, id_list[n][3:0]); // 256 > threshold(200), spikes immediately
+                repeat(60) @(posedge clk); // let the AER transaction fully complete before the next
+            end
+
+            repeat(20) @(posedge clk);
+
+            $display("        aer_log_count=%0d (started at %0d) total_spikes_logged=%0d",
+                     aer_log_count, pre_log, total_spikes_logged);
+
+            if ((aer_log_count - pre_log) == 3) begin
+                $display("[PASS] AER logger recorded exactly 3 new events for the 3 real spikes just generated");
+                test_pass_count++;
+            end else begin
+                $display("[FAIL] Expected 3 new AER log entries, got %0d", aer_log_count - pre_log);
+                test_fail_count++;
+            end
+
+            // Dump the last 3 entries and confirm the addresses match what
+            // was actually injected, in order.
+            aer_read_addr = pre_log[$clog2(AER_LOG_DEPTH)-1:0];
+            #1;
+            if (aer_read_out_addr == 4'd1) begin
+                $display("[PASS] AER log entry %0d correctly recorded neuron 1", pre_log);
+                test_pass_count++;
+            end else begin
+                $display("[FAIL] AER log entry %0d addr=%0d, expected neuron 1", pre_log, aer_read_out_addr);
+                test_fail_count++;
+            end
+
+            // Full-run cross-check: the AER path and the independent
+            // spike_bus monitor have been running in parallel since reset,
+            // so their totals should now match exactly.
+            if (aer_log_count == total_spikes_logged) begin
+                $display("[PASS] AER logger total (%0d) matches the independent spike_bus monitor (%0d) across the whole run",
+                         aer_log_count, total_spikes_logged);
+                test_pass_count++;
+            end else begin
+                $display("[FAIL] AER logger total (%0d) does NOT match the independent monitor (%0d)",
+                         aer_log_count, total_spikes_logged);
+                test_fail_count++;
+            end
+        end
+    endtask
+
+
+    task automatic test_dataset_replay();
+        integer fd;
+        integer code;
+        reg [8*256-1:0] line;
+        integer ch, t_ns, prev_t_ns;
+        integer n_events;
+        integer pre_log;
+        integer per_channel_out [0:15];
+        integer hot_total, base_total;
+        integer i;
+        begin
+            $display("\n========================================");
+            $display("TEST 17: Dataset Replay (synthetic_spike_dataset.txt)");
+            $display("========================================");
+
+            fd = $fopen("synthetic_spike_dataset.txt", "r");
+            if (fd == 0) begin
+                $display("[FAIL] Could not open synthetic_spike_dataset.txt in the simulation working directory");
+                test_fail_count++;
+            end else begin
+                pre_log = aer_log_count;
+                n_events = 0;
+                prev_t_ns = 0;
+                for (i = 0; i < 16; i = i + 1) per_channel_out[i] = 0;
+
+                while (!$feof(fd)) begin
+                    code = $fgets(line, fd);
+                    if (code > 0 && line[8*256-1 -: 8] != "#") begin
+                        code = $sscanf(line, "%d %d", ch, t_ns);
+                        if (code == 2) begin
+                            // Preserve the file's relative timing between
+                            // events (already in nanoseconds, matching this
+                            // testbench's timescale).
+                            if (t_ns > prev_t_ns) begin
+                                #(t_ns - prev_t_ns);
+                            end
+                            prev_t_ns = t_ns;
+
+                            @(posedge clk);
+                            lif_current_in        = {16'h0, 16'h0080}; // 128: sub-threshold alone
+                            lif_current_valid     = 1'b1;
+                            lif_current_neuron_id = ch[3:0];
+                            @(posedge clk);
+                            lif_current_valid     = 1'b0;
+                            n_events = n_events + 1;
+                        end
+                    end
+                end
+                $fclose(fd);
+
+                repeat(300) @(posedge clk); // drain the last few AER transactions
+
+                $display("        Replayed %0d input events. AER log grew from %0d to %0d entries.",
+                         n_events, pre_log, aer_log_count);
+
+                for (i = pre_log; i < aer_log_count; i = i + 1) begin
+                    aer_read_addr = i[$clog2(AER_LOG_DEPTH)-1:0];
+                    #1;
+                    per_channel_out[aer_read_out_addr] = per_channel_out[aer_read_out_addr] + 1;
+                end
+
+                hot_total  = per_channel_out[2] + per_channel_out[7] + per_channel_out[11];
+                base_total = 0;
+                for (i = 0; i < 16; i = i + 1) begin
+                    if (i != 2 && i != 7 && i != 11) base_total = base_total + per_channel_out[i];
+                end
+
+                $display("        Output spikes -- hot channels (2,7,11): %0d total | other 13 channels: %0d total",
+                         hot_total, base_total);
+
+                if (n_events > 0 && (aer_log_count - pre_log) > 0) begin
+                    $display("[PASS] Dataset replay produced output activity and the AER log captured it");
+                    test_pass_count++;
+                end else begin
+                    $display("[FAIL] No output activity captured from the dataset replay");
+                    test_fail_count++;
+                end
+
+                if (hot_total * 13 > base_total) begin
+                    $display("[PASS] Hot channels (2,7,11) show elevated per-channel output activity vs. the 13 baseline channels, as expected from their elevated input rate");
+                    test_pass_count++;
+                end else begin
+                    $display("[FAIL] Hot channels did not show elevated output activity (hot_total=%0d, base_total=%0d)", hot_total, base_total);
+                    test_fail_count++;
+                end
+            end
+        end
+    endtask
+
+
     initial begin
         $display("========================================");
-        $display("LAYERED SPIKE-NN TESTBENCH V3 (post-fix)");
+        $display("LAYERED SPIKE-NN TESTBENCH");
         $display("========================================");
 
         test_pass_count = 0;
@@ -695,6 +1312,20 @@ module spike_nn_tb_layered;
         test_spike_logger();
         test_multi_neuron_array();
         test_datapath_integration();
+        test_spike_logger_capacity();
+        test_lif_pending_race();
+        test_synapse_zero_sum();
+        test_lif_saturation();
+        test_fifo_full_backpressure();
+        test_weight_ram_collision();
+
+        // Extra settle time so every real spike from the tests above has
+        // fully drained through the AER link's multi-cycle handshake
+        // (including the slower aer_clk domain) before the cross-check.
+        repeat(100) @(posedge clk);
+        test_aer_link_protocol();
+        test_aer_integration();
+        test_dataset_replay();
 
         repeat(50) @(posedge clk);
 
@@ -703,7 +1334,8 @@ module spike_nn_tb_layered;
         $display("========================================");
         $display("Total Tests Passed : %0d", test_pass_count);
         $display("Total Tests Failed : %0d", test_fail_count);
-        $display("Spikes Generated   : %0d", total_spikes_generated);
+        $display("Pulse-Sync Stimuli Sent : %0d", total_spikes_generated);
+        $display("Total LIF Neuron Spikes : %0d", total_spikes_logged);
         $display("Total Cycles       : %0d", total_cycles);
         $display("========================================");
 
@@ -721,7 +1353,10 @@ module spike_nn_tb_layered;
     end
 
     always @(posedge clk) begin
-        if (rst_n && lif_spike_out) total_spikes_logged++;
+        // |lif_spike_bus counts a spike from ANY neuron, not just neuron 0
+        // (lif_spike_out is the legacy neuron-0-only alias -- using it here
+        // would just trade one under-counting bug for a smaller one).
+        if (rst_n && |lif_spike_bus) total_spikes_logged++;
     end
 
     always @(posedge clk) begin

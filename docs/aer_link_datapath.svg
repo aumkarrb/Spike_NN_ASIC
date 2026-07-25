@@ -1,0 +1,141 @@
+<svg viewBox="0 0 1720 980" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+
+  <defs>
+    <marker id="mGrey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,1.5 L8,5 L0,8.5 z" fill="#898781"/>
+    </marker>
+    <marker id="mGrey2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,1.5 L8,5 L0,8.5 z" fill="#898781"/>
+    </marker>
+    <marker id="mPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,1.5 L8,5 L0,8.5 z" fill="#534AB7"/>
+    </marker>
+    <marker id="mGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,1.5 L8,5 L0,8.5 z" fill="#0F6E56"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="860" y="40" font-size="22" font-weight="700" fill="#3A3835" text-anchor="middle">AER Link</text>
+  <text x="860" y="62" font-size="13" fill="#898781" text-anchor="middle">spike_bus → aer_tx (core_clk) — four-phase req/ack CDC — aer_rx → aer_spike_logger (aer_clk)</text>
+
+  <!-- ── core_clk panel ── -->
+  <rect x="40" y="100" width="820" height="380" rx="18" fill="#EEEDFE" stroke="#534AB7" stroke-width="2"/>
+  <text x="450" y="133" font-size="14" font-weight="700" fill="#3C3489" text-anchor="middle">core_clk</text>
+
+  <!-- spike_bus source -->
+  <rect x="64" y="156" width="210" height="108" rx="14" fill="#F1EFE8" stroke="#898781" stroke-width="1.8"/>
+  <text x="169" y="198" font-size="13.5" font-weight="600" fill="#5F5E5A" text-anchor="middle">spike_bus[15:0]</text>
+  <text x="169" y="218" font-size="11.5" fill="#898781" text-anchor="middle">from pipelined_lif</text>
+  <text x="169" y="238" font-size="11.5" fill="#898781" text-anchor="middle">one-hot per cycle</text>
+
+  <!-- aer_tx -->
+  <rect x="316" y="148" width="516" height="316" rx="14" fill="#FAECE7" stroke="#993C1D" stroke-width="2"/>
+  <text x="574" y="188" font-size="14" font-weight="700" fill="#993C1D" text-anchor="middle">aer_tx</text>
+  <text x="574" y="208" font-size="11.5" fill="#BB9385" text-anchor="middle">pending[15:0] latched every cycle — nothing lost mid-transaction</text>
+
+  <rect x="336" y="222" width="220" height="96" rx="12" fill="#F1EFE8" stroke="#993C1D" stroke-width="1.6"/>
+  <text x="446" y="250" font-size="12.5" font-weight="600" fill="#5F5E5A" text-anchor="middle">round-robin picker</text>
+  <text x="446" y="270" font-size="11" fill="#898781" text-anchor="middle">scans from rr_ptr each time</text>
+  <text x="446" y="288" font-size="11" fill="#898781" text-anchor="middle">no source can starve others</text>
+
+  <rect x="576" y="222" width="236" height="96" rx="12" fill="#F1EFE8" stroke="#993C1D" stroke-width="1.6"/>
+  <text x="694" y="250" font-size="12.5" font-weight="600" fill="#5F5E5A" text-anchor="middle">FSM</text>
+  <text x="694" y="270" font-size="11" fill="#898781" text-anchor="middle">IDLE → REQ_ASSERTED</text>
+  <text x="694" y="288" font-size="11" fill="#898781" text-anchor="middle">→ WAIT_ACK_LOW</text>
+
+  <rect x="336" y="332" width="476" height="96" rx="12" fill="#F1EFE8" stroke="#993C1D" stroke-width="1.6"/>
+  <text x="574" y="360" font-size="12.5" font-weight="600" fill="#5F5E5A" text-anchor="middle">ack_sync1 / ack_sync2</text>
+  <text x="574" y="380" font-size="11" fill="#898781" text-anchor="middle">2-flop synchronizer — brings aer_ack back from aer_clk domain</text>
+  <text x="574" y="398" font-size="11" fill="#898781" text-anchor="middle">busy = (state ≠ IDLE) || |pending</text>
+  <text x="574" y="416" font-size="11" fill="#BB9385" text-anchor="middle">out: addr[3:0] · aer_req · busy · pending_dbg[15:0]</text>
+
+  <line x1="274" y1="210" x2="316" y2="210" stroke="#898781" stroke-width="2.2" marker-end="url(#mGrey)"/>
+
+  <!-- ── aer_clk panel ── -->
+  <rect x="920" y="100" width="760" height="380" rx="18" fill="#E1F5EE" stroke="#0F6E56" stroke-width="2"/>
+  <text x="1300" y="133" font-size="14" font-weight="700" fill="#085041" text-anchor="middle">aer_clk — genuine CDC</text>
+
+  <!-- aer_rx -->
+  <rect x="944" y="156" width="336" height="296" rx="14" fill="#FAECE7" stroke="#993C1D" stroke-width="2"/>
+  <text x="1112" y="196" font-size="14" font-weight="700" fill="#993C1D" text-anchor="middle">aer_rx</text>
+  <text x="1112" y="216" font-size="11.5" fill="#BB9385" text-anchor="middle">req_sync1 / 2 / 3 — 3-flop chain</text>
+
+  <rect x="962" y="230" width="300" height="80" rx="12" fill="#F1EFE8" stroke="#993C1D" stroke-width="1.6"/>
+  <text x="1112" y="256" font-size="12.5" font-weight="600" fill="#5F5E5A" text-anchor="middle">edge detect</text>
+  <text x="1112" y="276" font-size="11" fill="#898781" text-anchor="middle">req_sync2 &amp; !req_sync3 → addr is stable</text>
+
+  <rect x="962" y="324" width="300" height="80" rx="12" fill="#F1EFE8" stroke="#993C1D" stroke-width="1.6"/>
+  <text x="1112" y="350" font-size="12.5" font-weight="600" fill="#5F5E5A" text-anchor="middle">FSM: IDLE → WAIT_LOW</text>
+  <text x="1112" y="370" font-size="11" fill="#898781" text-anchor="middle">pulses event_valid · raises aer_ack</text>
+  <text x="1112" y="388" font-size="11" fill="#898781" text-anchor="middle">drops aer_ack when !req_sync2</text>
+
+  <text x="1112" y="432" font-size="11" fill="#BB9385" text-anchor="middle">out: addr_out[3:0] · event_valid (1-cycle)</text>
+
+  <!-- aer_spike_logger -->
+  <rect x="1316" y="156" width="336" height="296" rx="14" fill="#E1F5EE" stroke="#0F6E56" stroke-width="2"/>
+  <text x="1484" y="196" font-size="14" font-weight="700" fill="#085041" text-anchor="middle">aer_spike_logger</text>
+  <text x="1484" y="216" font-size="11.5" fill="#0F6E56" text-anchor="middle">circular (addr, timestamp) log</text>
+  <text x="1484" y="238" font-size="11.5" fill="#0F6E56" text-anchor="middle">DEPTH entries, log_count / overflow</text>
+  <text x="1484" y="260" font-size="11.5" fill="#0F6E56" text-anchor="middle">same non-sticky overflow style</text>
+
+  <rect x="1334" y="276" width="300" height="80" rx="12" fill="#F1EFE8" stroke="#0F6E56" stroke-width="1.6"/>
+  <text x="1484" y="302" font-size="12.5" font-weight="600" fill="#085041" text-anchor="middle">read-back port</text>
+  <text x="1484" y="322" font-size="11" fill="#3F9E7C" text-anchor="middle">read_addr →</text>
+  <text x="1484" y="340" font-size="11" fill="#3F9E7C" text-anchor="middle">read_out_addr / read_out_time</text>
+
+  <text x="1484" y="390" font-size="11" fill="#3F9E7C" text-anchor="middle">cross-checked against</text>
+  <text x="1484" y="408" font-size="11" fill="#3F9E7C" text-anchor="middle">spike_bus monitor (Test 16)</text>
+  <text x="1484" y="430" font-size="11" fill="#085041" text-anchor="middle">used in dataset-replay (Test 17)</text>
+
+  <!-- Arrow aer_rx → aer_spike_logger -->
+  <line x1="1280" y1="304" x2="1316" y2="304" stroke="#898781" stroke-width="2.2" marker-end="url(#mGrey)"/>
+
+  <!-- CDC crossing arrows between panels -->
+  <!-- req/addr forward -->
+  <path d="M860,210 L920,210" stroke="#534AB7" stroke-width="2.2" fill="none" marker-end="url(#mPurple)"/>
+  <text x="890" y="198" font-size="10.5" fill="#534AB7" text-anchor="middle">addr · req</text>
+  <!-- ack return -->
+  <path d="M920,290 L860,290" stroke="#534AB7" stroke-width="2.2" fill="none" stroke-dasharray="6 4" marker-end="url(#mPurple)"/>
+  <text x="890" y="312" font-size="10.5" fill="#534AB7" text-anchor="middle">aer_ack</text>
+  <text x="890" y="250" font-size="10" fill="#534AB7" text-anchor="middle">genuine 2-way</text>
+  <text x="890" y="263" font-size="10" fill="#534AB7" text-anchor="middle">CDC crossing</text>
+
+  <!-- ══════════════════════════════════════
+       FOUR-PHASE TIMING DIAGRAM
+       ══════════════════════════════════════ -->
+  <rect x="40" y="520" width="1640" height="420" rx="18" fill="#F1EFE8" stroke="#898781" stroke-width="2"/>
+  <text x="860" y="560" font-size="16" font-weight="700" fill="#5F5E5A" text-anchor="middle">Four-phase handshake (conceptual · not to scale)</text>
+
+  <!-- aer_req waveform -->
+  <text x="115" y="632" font-size="13.5" fill="#3C3489" font-weight="600" text-anchor="end">aer_req</text>
+  <path d="M130,640 L290,640 L290,606 L610,606 L610,640 L1640,640"
+        stroke="#534AB7" stroke-width="3" fill="none"/>
+
+  <!-- aer_ack waveform -->
+  <text x="115" y="712" font-size="13.5" fill="#3C3489" font-weight="600" text-anchor="end">aer_ack</text>
+  <path d="M130,720 L390,720 L390,686 L720,686 L720,720 L1640,720"
+        stroke="#7B6FC4" stroke-width="3" fill="none" stroke-dasharray="10 4"/>
+
+  <!-- vertical guides -->
+  <line x1="290" y1="580" x2="290" y2="760" stroke="#C9C6BF" stroke-width="1.4" stroke-dasharray="4 4"/>
+  <line x1="390" y1="580" x2="390" y2="760" stroke="#C9C6BF" stroke-width="1.4" stroke-dasharray="4 4"/>
+  <line x1="610" y1="580" x2="610" y2="760" stroke="#C9C6BF" stroke-width="1.4" stroke-dasharray="4 4"/>
+  <line x1="720" y1="580" x2="720" y2="760" stroke="#C9C6BF" stroke-width="1.4" stroke-dasharray="4 4"/>
+
+  <!-- step labels -->
+  <text x="290" y="784" font-size="12.5" fill="#5F5E5A" text-anchor="middle">1. req rises</text>
+  <text x="290" y="800" font-size="11" fill="#898781" text-anchor="middle">addr held stable</text>
+  <text x="390" y="784" font-size="12.5" fill="#5F5E5A" text-anchor="middle">2. ack rises</text>
+  <text x="390" y="800" font-size="11" fill="#898781" text-anchor="middle">event_valid pulses</text>
+  <text x="610" y="784" font-size="12.5" fill="#5F5E5A" text-anchor="middle">3. req falls</text>
+  <text x="610" y="800" font-size="11" fill="#898781" text-anchor="middle">WAIT_ACK_LOW</text>
+  <text x="720" y="784" font-size="12.5" fill="#5F5E5A" text-anchor="middle">4. ack falls</text>
+  <text x="720" y="800" font-size="11" fill="#898781" text-anchor="middle">back to IDLE</text>
+
+  <!-- footnote -->
+  <text x="860" y="860" font-size="12" fill="#898781" text-anchor="middle">Two-directional CDC: aer_req / addr cross core_clk → aer_clk; aer_ack returns through ack_sync1/2 in aer_tx.</text>
+  <text x="860" y="880" font-size="12" fill="#898781" text-anchor="middle">Next event cannot be issued until the full four-phase cycle completes.</text>
+  <text x="860" y="910" font-size="12" fill="#898781" text-anchor="middle">Verified: Test 15 (protocol + round-robin arbitration under simultaneous requests) · Test 16 (cross-check against spike_bus monitor)</text>
+
+</svg>

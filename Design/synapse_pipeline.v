@@ -27,11 +27,12 @@ module synapse_pipeline #(
     assign event_ready = !(current_valid && !current_ready);
 
     reg [WIDTH-1:0] accum;
+    reg accum_pending;
 
     wire term_valid     = pipe_valid[DELAY-1];
     wire [WIDTH-1:0] term = pipe_product[DELAY-1];
     wire [WIDTH-1:0] merged   = accum + (term_valid ? term : {WIDTH{1'b0}});
-    wire             has_data = (accum != {WIDTH{1'b0}}) || term_valid;
+    wire             has_data = accum_pending || term_valid;
     wire             out_free = !current_valid || current_ready;
 
     always @(posedge clk or negedge rst_n) begin
@@ -41,6 +42,7 @@ module synapse_pipeline #(
                 pipe_valid[i]   <= 1'b0;
             end
             accum         <= {WIDTH{1'b0}};
+            accum_pending <= 1'b0;
             current_out   <= {WIDTH{1'b0}};
             current_valid <= 1'b0;
         end else begin
@@ -58,11 +60,15 @@ module synapse_pipeline #(
                 current_out   <= merged;
                 current_valid <= has_data;
                 accum         <= {WIDTH{1'b0}};
+                accum_pending <= 1'b0;
             end else begin
                 accum <= merged;
+                if (term_valid) accum_pending <= 1'b1;
+                // else: nothing new arrived this cycle, occupancy unchanged
                 // current_out / current_valid hold their values
             end
         end
     end
 
 endmodule
+

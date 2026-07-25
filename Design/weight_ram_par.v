@@ -1,5 +1,4 @@
 `timescale 1ns/1ps
-
 module weight_ram_par #(
     parameter DEPTH    = 256,
     parameter WIDTH    = 32,
@@ -19,13 +18,6 @@ module weight_ram_par #(
     localparam AW = $clog2(DEPTH);
 
     reg [WIDTH-1:0] mem [0:DEPTH-1];
-
-    integer init_idx;
-    initial begin
-        for (init_idx = 0; init_idx < DEPTH; init_idx = init_idx + 1) begin
-            mem[init_idx] = 32'h0000_0010;
-        end
-    end
 
     // Synchronous write (single port)
     always @(posedge clk) begin
