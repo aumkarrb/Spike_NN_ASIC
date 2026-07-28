@@ -11,14 +11,14 @@
 
 ## Overview
 
-Spike_NN_ASIC implements the core datapath of a digital spiking neural network — event ingestion, synaptic weighting, leaky integrate-and-fire neuron dynamics, and spike-event output — as nine standalone Verilog modules spanning three genuinely independent clock domains. The FIFO ingests events, the synapse pipeline weighs them, the sixteen-neuron array integrates them, and the AER link carries spikes back. All are separately-clocked RTL, wired together with, a downstream integrator.
+Spike_NN_RTL implements the core datapath of a digital spiking neural network — event ingestion, synaptic weighting, leaky integrate-and-fire neuron dynamics, and spike-event output — as nine standalone Verilog modules spanning three genuinely independent clock domains. The FIFO ingests events, the synapse pipeline weighs them, the sixteen-neuron array integrates them, and the AER link carries spikes back. All are separately-clocked RTL, wired together with, a downstream integrator.
 
 An incoming event — a synaptic weight address paired with an activation magnitude — crosses from a host-side write clock into the core clock through a Gray-coded, dual-port FIFO, is resolved against a parallel-read weight RAM, multiply-accumulated into a post-synaptic current, and injected into whichever of sixteen neurons a round-robin scheduler happens to be servicing that cycle. Each neuron's membrane potential leaks, integrates, and — through a saturating rather than wrapping adder — either settles below threshold or spikes and resets. Every spike is counted locally and, independently, carried off the neuron array entirely: a four-phase request/acknowledge handshake transports it across a third, independently-clocked domain into its own address-event log, complete with a read-back port for offline comparison against reference datasets.
 
 ## Repository Structure
 
 ```
-Spike_NN_ASIC/
+Spike_NN_RTL/
 ├── Design/
 │   ├── event_fifo.v                   # Asynchronous (dual-clock) AER-style event-input FIFO
 │   ├── weight_ram_par.v               # Parallel-access weight RAM (synapse memory)
@@ -55,7 +55,7 @@ Spike_NN_ASIC/
 
 ## Module Reference
 
-![Spike_NN_ASIC top-level architecture](docs/spike_nn_asic_top_level_architecture.svg)
+![Spike_NN_RTL top-level architecture](docs/spike_nn_asic_top_level_architecture.svg)
 
 There is no single top-level RTL file in this repository — no integration shim, no synthesis wrapper. **"Spike-NN Core"** in the diagram above is a conceptual boundary, not a file: 
 
