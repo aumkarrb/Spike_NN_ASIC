@@ -1,4 +1,4 @@
-# Spike NN ASIC — Digital Spiking Neural Network for ASIC Implementation
+# Spike NN RTL — Digital Spiking Neural Network for eventual ASIC Implementation
 
 > RTL design and verification of a pipelined, multi-neuron, asynchronous leaky integrate-and-fire spiking neural network core in Verilog, with a four-phase AER output link
 
